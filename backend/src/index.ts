@@ -14,7 +14,7 @@ const app = express();
 const allowedOrigins = [
   "http://localhost:8080",
   "http://192.168.100.25:8080", // your device access
-  "http://localhost:3000",      // (if using Vite/CRA on another port)
+  "https://cardirectory.pages.dev",
 ];
 
 // Secure CORS configuration for cookies/auth

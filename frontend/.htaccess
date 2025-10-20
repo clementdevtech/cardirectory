@@ -1,0 +1,9 @@
+Options -MultiViews
+RewriteEngine On
+RewriteBase /
+# If a file or directory exists, serve it directly
+RewriteCond %{REQUEST_FILENAME} -f [OR]
+RewriteCond %{REQUEST_FILENAME} -d
+RewriteRule ^ - [L]
+# Otherwise redirect to index.html
+RewriteRule ^ index.html [L]
