@@ -3,7 +3,7 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
-const FRONTEND_URL = process.env.FRONTEND_URL || "https://cardirectory.pages.dev";
+const FRONTEND_URL = process.env.FRONTEND_URL;
 
 /**
  * Sends a password reset email using Supabase's built-in email service.

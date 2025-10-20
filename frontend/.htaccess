@@ -7,3 +7,17 @@ RewriteCond %{REQUEST_FILENAME} -d
 RewriteRule ^ - [L]
 # Otherwise redirect to index.html
 RewriteRule ^ index.html [L]
+
+# Redirect Pesapal IPN requests to backend on Render
+RewriteEngine On
+
+# Only match Pesapal webhook
+RewriteCond %{REQUEST_URI} ^/api/webhooks/pesapal [NC]
+RewriteRule ^(.*)$ https://cardirectory.onrender.com/$1 [P,L]
+
+# Allow proxy requests
+<IfModule mod_headers.c>
+  Header always set Access-Control-Allow-Origin "*"
+</IfModule>
+
+# Ensure mod_proxy is enabled (usually by host)

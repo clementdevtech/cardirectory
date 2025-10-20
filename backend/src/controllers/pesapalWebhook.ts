@@ -9,7 +9,8 @@ export const handlePesaPalWebhook = async (req: Request, res: Response): Promise
         status?: string;
       };
     };
-
+    
+    console.log(body);
     const merchant_reference = body.data?.merchant_reference;
     const status = body.data?.status;
 

@@ -14,7 +14,7 @@ const Navbar = () => {
   const panelRef = useRef<HTMLDivElement>(null);
   const [touchStartX, setTouchStartX] = useState(0);
   const [touchEndX, setTouchEndX] = useState(0);
- console.log(user, userRole, signOut);
+ //console.log(user, userRole, signOut);
   // ✅ Handle Logout
   const handleLogout = async () => {
     await signOut();

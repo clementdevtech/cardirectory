@@ -3,9 +3,10 @@ import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/useAuth";
 
-// 👇 Replace this with your actual backend base URL
-const API_BASE_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:4000";
+const API_BASE_URL = import.meta.env.VITE_BACKEND_URL as string;
 
 interface ApiResponse {
   success?: boolean;
@@ -18,11 +19,13 @@ const Checkout: React.FC = () => {
   const navigate = useNavigate();
   const selectedPlan = searchParams.get("plan") || "free";
 
-  const [phone, setPhone] = useState<string>("");
-  const [loading, setLoading] = useState<boolean>(false);
+  const [phone, setPhone] = useState("");
+  const [loading, setLoading] = useState(false);
+  const { user } = useAuth();
+  console.log(user);
 
-  // Calculate plan price
-  const amount: number =
+  // 💰 Plan pricing
+  const amount =
     selectedPlan === "free"
       ? 0
       : selectedPlan === "standard"
@@ -33,12 +36,79 @@ const Checkout: React.FC = () => {
 
   // ✅ Validate Kenyan phone number format
   const validatePhoneNumber = (phoneNumber: string): boolean => {
-    // Matches 07XXXXXXXX or 2547XXXXXXXX (M-Pesa / Airtel)
     const pattern = /^(?:\+?254|0)?7\d{8}$/;
     return pattern.test(phoneNumber.trim());
   };
 
+  // 🕐 Handle Free Trial Logic (with active trial check)
+  const handleFreeTrial = async (userId: string) => {
+    try {
+      // 1️⃣ Check if user already has a trial
+      const { data: existingUser, error: fetchError } = await supabase
+        .from("users")
+        .select("trial_start, trial_end, role")
+        .eq("id", userId)
+        .single();
+
+      if (fetchError) throw fetchError;
+
+      const now = new Date();
+      const trialEnd = existingUser?.trial_end ? new Date(existingUser.trial_end) : null;
+
+      // If trial still active
+      if (trialEnd && trialEnd > now) {
+        const daysLeft = Math.ceil((trialEnd.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+        toast.warning(`⚠️ You already have an active trial (${daysLeft} days left).`);
+        navigate("/dashboard");
+        return;
+      }
+
+      // If user already a dealer
+      if (existingUser?.role === "dealer") {
+        toast.info("You’re already a dealer. No need for a free trial.");
+        navigate("/dashboard");
+        return;
+      }
+
+      // 2️⃣ Create new 7-day trial
+      const trialStart = new Date();
+      const newTrialEnd = new Date();
+      newTrialEnd.setDate(trialStart.getDate() + 7);
+
+      const { error: updateError } = await supabase
+        .from("users")
+        .update({
+          trial_start: trialStart.toISOString(),
+          trial_end: newTrialEnd.toISOString(),
+        })
+        .eq("id", userId);
+
+      if (updateError) throw updateError;
+
+      toast.success("🎉 Your 7-day free trial has started!");
+      navigate("/dashboard");
+    } catch (err) {
+      console.error("Free trial setup error:", err);
+      toast.error("Failed to start free trial.");
+    }
+  };
+
+  // 💳 Handle payment for paid plans
   const handlePayment = async (): Promise<void> => {
+    if (!user) {
+      toast.error("You must be logged in to continue.");
+      return;
+    }
+
+    // 👉 Free plan (7-day trial)
+    if (selectedPlan === "free") {
+      setLoading(true);
+      await handleFreeTrial(user.id);
+      setLoading(false);
+      return;
+    }
+
+    // 👉 Paid plans (standard / premium)
     if (!phone) {
       toast.error("Please enter your phone number");
       return;
@@ -50,16 +120,8 @@ const Checkout: React.FC = () => {
     }
 
     setLoading(true);
-
     try {
-      // Retrieve logged-in user (from localStorage or context)
-      const user = JSON.parse(localStorage.getItem("user") || "{}");
-      if (!user?.id) {
-        toast.error("You must be logged in to pay");
-        return;
-      }
-
-      const response = await fetch(`${API_BASE_URL}/api/payments/pesapal/create`, {
+      const response = await fetch(`${API_BASE_URL}/payments/pesapal/create`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -71,26 +133,20 @@ const Checkout: React.FC = () => {
       });
 
       const data: ApiResponse = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || "Payment failed");
-      }
+      if (!response.ok) throw new Error(data.error || "Payment failed");
 
       toast.success("Payment initiated! Please check your phone to approve.");
 
-      // Optional redirect (Pesapal payment link or dashboard)
       setTimeout(() => {
         if (data.payment_link) {
           window.location.href = data.payment_link;
         } else {
           navigate("/dashboard");
         }
-      }, 2000);
-    } catch (error: unknown) {
+      }, 1500);
+    } catch (error) {
       console.error("Payment initiation error:", error);
-      const errMsg =
-        error instanceof Error ? error.message : "Payment initiation failed";
-      toast.error(errMsg);
+      toast.error(error instanceof Error ? error.message : "Payment initiation failed");
     } finally {
       setLoading(false);
     }
@@ -106,27 +162,37 @@ const Checkout: React.FC = () => {
           </h1>
           <p className="text-gray-600 mb-8">
             Total Amount:{" "}
-            <span className="font-semibold text-gray-900">KES {amount}</span>
+            <span className="font-semibold text-gray-900">
+              {selectedPlan === "free" ? "Free Trial (7 days)" : `KES ${amount}`}
+            </span>
           </p>
 
           <div className="bg-white p-6 rounded-xl shadow-md border">
-            <label className="block mb-2 text-sm font-medium text-gray-700">
-              Enter your mobile number (e.g. 07XXXXXXXX)
-            </label>
-            <input
-              type="tel"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              placeholder="07XXXXXXXX"
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 mb-4 focus:ring-2 focus:ring-blue-500"
-            />
+            {selectedPlan !== "free" && (
+              <>
+                <label className="block mb-2 text-sm font-medium text-gray-700">
+                  Enter your mobile number (e.g. 07XXXXXXXX)
+                </label>
+                <input
+                  type="tel"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder="07XXXXXXXX"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 mb-4 focus:ring-2 focus:ring-blue-500"
+                />
+              </>
+            )}
 
             <button
               onClick={handlePayment}
               disabled={loading}
               className="w-full bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 disabled:opacity-50"
             >
-              {loading ? "Processing..." : `Pay KES ${amount}`}
+              {loading
+                ? "Processing..."
+                : selectedPlan === "free"
+                ? "Start Free Trial"
+                : `Pay KES ${amount}`}
             </button>
           </div>
         </div>

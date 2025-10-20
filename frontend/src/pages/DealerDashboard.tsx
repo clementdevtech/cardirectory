@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { Card } from "@/components/ui/card";
@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
-import { Car, Eye, MessageSquare, TrendingUp, Plus, Edit } from "lucide-react";
+import { Car, MessageSquare, TrendingUp, Plus, Edit, AlertCircle } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -17,59 +17,90 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { differenceInDays, differenceInHours, differenceInMinutes } from "date-fns";
 
+// -------------------- 🧩 TypeScript Interfaces --------------------
+interface Dealer {
+  id: string;
+  user_id: string;
+  full_name?: string;
+  company_name?: string;
+  email?: string;
+  phone?: string;
+  location?: string;
+}
+
+interface Listing {
+  id: number;
+  dealer_id: string;
+  make: string;
+  model: string;
+  year: number;
+  price: number;
+  mileage: number;
+  condition: string;
+  location: string;
+  description: string;
+  phone: string;
+  status: "pending" | "active" | "removed";
+  created_at?: string;
+}
+
+interface Subscription {
+  id: number;
+  dealer_id: string;
+  plan_name: string;
+  listing_limit: number;
+  status: "active" | "expired";
+}
+
+interface TrialInfo {
+  trialEnd: string | null;
+  expired: boolean;
+}
+
+// -------------------- 🧭 Component --------------------
 const DealerDashboard = () => {
   const { user, userRole, isLoading } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
 
-  const [dealerProfile, setDealerProfile] = useState<any>(null);
-  const [listings, setListings] = useState<any[]>([]);
-  const [subscription, setSubscription] = useState<any>(null);
+  const [dealerProfile, setDealerProfile] = useState<Dealer | null>(null);
+  const [listings, setListings] = useState<Listing[]>([]);
+  const [subscription, setSubscription] = useState<Subscription | null>(null);
+  const [trialInfo, setTrialInfo] = useState<TrialInfo>({ trialEnd: null, expired: false });
+  const [remainingTime, setRemainingTime] = useState<string>("");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
-  const [editListing, setEditListing] = useState<any>(null);
+  const [editListing, setEditListing] = useState<Listing | null>(null);
 
-  const [newListing, setNewListing] = useState({
+  const [newListing, setNewListing] = useState<Omit<Listing, "id" | "dealer_id" | "status">>({
     make: "",
     model: "",
     year: new Date().getFullYear(),
-    price: "",
-    mileage: "",
+    price: 0,
+    mileage: 0,
     condition: "foreign_used",
     location: "",
     description: "",
     phone: "",
   });
 
-  // Redirect unauthorized users
+  // 🔐 Redirect unauthorized users
   useEffect(() => {
     if (!isLoading && (!user || userRole !== "dealer")) {
       navigate("/login");
     }
   }, [user, userRole, isLoading, navigate]);
 
-  // Fetch dealer data
-  useEffect(() => {
-    if (user && userRole === "dealer") {
-      fetchDealerData();
-    }
-  }, [user, userRole]);
-
-  const fetchDealerData = async () => {
+  // 🧠 Fetch dealer data
+  const fetchDealerData = useCallback(async () => {
     try {
       const { data: profile } = await supabase
         .from("dealers")
         .select("*")
         .eq("user_id", user?.id)
-        .single();
+        .single<Dealer>();
 
       setDealerProfile(profile);
 
@@ -78,7 +109,8 @@ const DealerDashboard = () => {
           .from("cars")
           .select("*")
           .eq("dealer_id", profile.id)
-          .order("created_at", { ascending: false });
+          .order("created_at", { ascending: false })
+          .returns<Listing[]>();
 
         setListings(listingsData || []);
 
@@ -87,21 +119,76 @@ const DealerDashboard = () => {
           .select("*")
           .eq("dealer_id", profile.id)
           .eq("status", "active")
-          .single();
+          .single<Subscription>();
 
         setSubscription(subData);
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Unknown error";
       toast({
         title: "Error loading dealer data",
-        description: err.message,
+        description: message,
         variant: "destructive",
       });
     }
-  };
+  }, [toast, user?.id]);
 
-  // 🆕 Create new car listing
-  const handleCreateListing = async (e: React.FormEvent) => {
+  // ⏳ Fetch trial info
+  const fetchTrialInfo = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from("users")
+        .select("trial_end")
+        .eq("id", user?.id)
+        .single<{ trial_end: string | null }>();
+
+      if (error) throw error;
+      if (data?.trial_end) {
+        const end = new Date(data.trial_end);
+        setTrialInfo({ trialEnd: end.toISOString(), expired: end <= new Date() });
+      }
+    } catch (err) {
+      console.error("Error fetching trial info:", err);
+    }
+  }, [user?.id]);
+
+  // ⏱️ Start trial countdown
+  useEffect(() => {
+    if (!trialInfo.trialEnd) return;
+
+    const interval = setInterval(() => {
+      const now = new Date();
+      const end = new Date(trialInfo.trialEnd);
+
+      if (end <= now) {
+        setTrialInfo((prev) => ({ ...prev, expired: true }));
+        setRemainingTime("Trial expired");
+        clearInterval(interval);
+        return;
+      }
+
+      const days = differenceInDays(end, now);
+      const hours = differenceInHours(end, now) % 24;
+      const minutes = differenceInMinutes(end, now) % 60;
+
+      if (days > 0) setRemainingTime(`${days} day${days > 1 ? "s" : ""} left`);
+      else if (hours > 0) setRemainingTime(`${hours} hour${hours > 1 ? "s" : ""} left`);
+      else setRemainingTime(`${minutes} minute${minutes > 1 ? "s" : ""} left`);
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [trialInfo.trialEnd]);
+
+  // Fetch everything on mount
+  useEffect(() => {
+    if (user && userRole === "dealer") {
+      fetchDealerData();
+      fetchTrialInfo();
+    }
+  }, [user, userRole, fetchDealerData, fetchTrialInfo]);
+
+  // 🆕 Create listing
+  const handleCreateListing = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
 
     if (!dealerProfile) {
@@ -113,11 +200,7 @@ const DealerDashboard = () => {
       return;
     }
 
-    if (
-      subscription &&
-      subscription.listing_limit &&
-      listings.length >= subscription.listing_limit
-    ) {
+    if (subscription?.listing_limit && listings.length >= subscription.listing_limit) {
       toast({
         title: "Listing Limit Reached",
         description: "You have reached your subscription limit. Upgrade your plan.",
@@ -128,15 +211,7 @@ const DealerDashboard = () => {
 
     const { error } = await supabase.from("cars").insert({
       dealer_id: dealerProfile.id,
-      make: newListing.make,
-      model: newListing.model,
-      year: newListing.year,
-      price: parseFloat(newListing.price),
-      mileage: parseFloat(newListing.mileage || "0"),
-      condition: newListing.condition,
-      location: newListing.location,
-      description: newListing.description,
-      phone: newListing.phone,
+      ...newListing,
       status: "pending",
     });
 
@@ -149,18 +224,14 @@ const DealerDashboard = () => {
       return;
     }
 
-    toast({
-      title: "Success",
-      description: "Listing submitted for admin approval!",
-    });
-
+    toast({ title: "Success", description: "Listing submitted for admin approval!" });
     setIsDialogOpen(false);
     setNewListing({
       make: "",
       model: "",
       year: new Date().getFullYear(),
-      price: "",
-      mileage: "",
+      price: 0,
+      mileage: 0,
       condition: "foreign_used",
       location: "",
       description: "",
@@ -170,10 +241,9 @@ const DealerDashboard = () => {
     fetchDealerData();
   };
 
-  // ✏️ Handle Edit Listing
-  const handleEditListing = async (e: React.FormEvent) => {
+  // ✏️ Edit listing
+  const handleEditListing = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-
     if (!editListing) return;
 
     const { error } = await supabase
@@ -182,13 +252,13 @@ const DealerDashboard = () => {
         make: editListing.make,
         model: editListing.model,
         year: editListing.year,
-        price: parseFloat(editListing.price),
-        mileage: parseFloat(editListing.mileage || "0"),
+        price: editListing.price,
+        mileage: editListing.mileage,
         condition: editListing.condition,
         location: editListing.location,
         description: editListing.description,
         phone: editListing.phone,
-        status: "pending", // Reset to pending for re-approval
+        status: "pending",
       })
       .eq("id", editListing.id);
 
@@ -201,11 +271,7 @@ const DealerDashboard = () => {
       return;
     }
 
-    toast({
-      title: "Success",
-      description: "Listing updated and submitted for re-approval!",
-    });
-
+    toast({ title: "Success", description: "Listing updated successfully!" });
     setIsEditOpen(false);
     setEditListing(null);
     fetchDealerData();
@@ -217,22 +283,46 @@ const DealerDashboard = () => {
     pendingListings: listings.filter((l) => l.status === "pending").length,
   };
 
-  if (isLoading) {
-    return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
-  }
-
-  if (!user || userRole !== "dealer") {
-    return null;
-  }
+  if (isLoading) return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
+  if (!user || userRole !== "dealer") return null;
 
   return (
     <div className="min-h-screen bg-gray-50">
-  
+      {/* 🚀 Trial Banner */}
+      {trialInfo.trialEnd && (
+        <div
+          className={`p-4 flex items-center justify-between border-b ${
+            trialInfo.expired
+              ? "bg-red-100 border-red-300 text-red-700"
+              : "bg-yellow-100 border-yellow-300 text-yellow-800"
+          }`}
+        >
+          <div className="flex items-center gap-3">
+            <AlertCircle className="w-5 h-5" />
+            <div>
+              {trialInfo.expired ? (
+                <p className="font-semibold">
+                  ⏳ Your free trial has ended. Upgrade to continue using dealer features.
+                </p>
+              ) : (
+                <p className="font-semibold">
+                  🚀 Free Trial Active — <span className="text-primary">{remainingTime}</span> remaining
+                </p>
+              )}
+            </div>
+          </div>
+          {trialInfo.expired && (
+            <Button onClick={() => navigate("/pricing")} className="bg-primary text-white">
+              Upgrade Now
+            </Button>
+          )}
+        </div>
+      )}
 
+      {/* Dashboard Content */}
       <div className="pt-24 pb-16 container mx-auto px-4">
         <div className="flex items-center justify-between mb-8">
           <h1 className="font-heading font-bold text-4xl">Dealer Dashboard</h1>
-
           <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
             <DialogTrigger asChild>
               <Button className="gradient-hero">
@@ -244,19 +334,14 @@ const DealerDashboard = () => {
                 <DialogTitle>Create New Listing</DialogTitle>
               </DialogHeader>
               <form onSubmit={handleCreateListing} className="space-y-4">
-                {[
-                  ["Make", "make"],
-                  ["Model", "model"],
-                  ["Location", "location"],
-                  ["Phone Number", "phone"],
-                ].map(([label, key]) => (
-                  <div key={key}>
-                    <Label>{label}</Label>
+                {["make", "model", "location", "phone"].map((field) => (
+                  <div key={field}>
+                    <Label className="capitalize">{field}</Label>
                     <Input
                       required
-                      value={(newListing as any)[key]}
+                      value={(newListing as any)[field]}
                       onChange={(e) =>
-                        setNewListing({ ...newListing, [key]: e.target.value })
+                        setNewListing({ ...newListing, [field]: e.target.value })
                       }
                     />
                   </div>
@@ -281,7 +366,7 @@ const DealerDashboard = () => {
                       required
                       value={newListing.price}
                       onChange={(e) =>
-                        setNewListing({ ...newListing, price: e.target.value })
+                        setNewListing({ ...newListing, price: parseFloat(e.target.value) })
                       }
                     />
                   </div>
@@ -337,90 +422,7 @@ const DealerDashboard = () => {
             </div>
           </Card>
         </div>
-
-        {/* Listings */}
-        <Card className="p-6">
-          <h2 className="font-heading font-bold text-2xl mb-6">My Listings</h2>
-          {listings.length === 0 ? (
-            <p className="text-muted-foreground">No listings yet. Add one!</p>
-          ) : (
-            <div className="space-y-4">
-              {listings.map((listing) => (
-                <div
-                  key={listing.id}
-                  className="flex items-center justify-between p-4 border rounded-lg bg-white"
-                >
-                  <div className="flex-1">
-                    <div className="flex items-center gap-3">
-                      <h3 className="font-semibold text-lg">
-                        {listing.make} {listing.model} ({listing.year})
-                      </h3>
-                      <Badge
-                        variant={
-                          listing.status === "active"
-                            ? "default"
-                            : listing.status === "pending"
-                            ? "secondary"
-                            : "destructive"
-                        }
-                      >
-                        {listing.status}
-                      </Badge>
-                    </div>
-                    <p className="text-sm text-muted-foreground">
-                      Location: {listing.location}
-                    </p>
-                    <p className="font-semibold text-primary mt-1">
-                      KES {Number(listing.price).toLocaleString()}
-                    </p>
-                  </div>
-
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => {
-                      setEditListing(listing);
-                      setIsEditOpen(true);
-                    }}
-                  >
-                    <Edit className="w-4 h-4 mr-1" /> Edit
-                  </Button>
-                </div>
-              ))}
-            </div>
-          )}
-        </Card>
       </div>
-
-      {/* ✏️ Edit Listing Dialog */}
-      {editListing && (
-        <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
-          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>Edit Listing</DialogTitle>
-            </DialogHeader>
-            <form onSubmit={handleEditListing} className="space-y-4">
-              {["make", "model", "location", "phone", "price", "year", "description"].map(
-                (field) => (
-                  <div key={field}>
-                    <Label className="capitalize">{field}</Label>
-                    <Input
-                      value={editListing[field] || ""}
-                      onChange={(e) =>
-                        setEditListing({ ...editListing, [field]: e.target.value })
-                      }
-                    />
-                  </div>
-                )
-              )}
-              <Button type="submit" className="w-full gradient-hero">
-                Save Changes
-              </Button>
-            </form>
-          </DialogContent>
-        </Dialog>
-      )}
-
     </div>
   );
 };

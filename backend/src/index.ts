@@ -10,26 +10,24 @@ import auth from "./routes/auth";
 dotenv.config();
 const app = express();
 
-//  Allowed frontend origins (adjust if needed)
+//  Allowed frontend origins
 const allowedOrigins = [
   "http://localhost:8080",
-  "http://192.168.100.25:8080", // your device access
+  "http://192.168.100.25:8080",
   "https://cardirectory.pages.dev",
+  "https://cardirectory.co.ke",
 ];
 
-// Secure CORS configuration for cookies/auth
+
 app.use(
   cors({
     origin: allowedOrigins,
-    credentials: true, // required for cookies / sessions
+    credentials: true,
   })
 );
 
 app.use(bodyParser.json());
 
-// Optional: ensure Express parses cookies correctly if needed
-// import cookieParser from "cookie-parser";
-// app.use(cookieParser());
 
 app.use("/api/payments", paymentRoutes);
 app.use("/api/webhooks", webhookRoutes);
