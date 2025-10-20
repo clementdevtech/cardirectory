@@ -1,6 +1,6 @@
 import cron from "node-cron";
-import pool from "../db";
-import logger from "../logger";
+import { pool } from "../db";
+import  logger from "../logger"; 
 
 // Runs every day at 9 AM
 cron.schedule("0 9 * * *", async () => {

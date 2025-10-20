@@ -1,5 +1,5 @@
 import { query } from "../db";
-import { log } from "../logger";
+import logger from "../logger";
 
 export async function createPayment(payload: {
   dealer_id?: number | null;
@@ -23,7 +23,7 @@ export async function createPayment(payload: {
       payload.raw_response ?? null
     ]
   );
-  log.info("payment created", res.rows[0]);
+  logger.info("payment created", res.rows[0]);
   return res.rows[0];
 }
 

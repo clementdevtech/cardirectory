@@ -5,19 +5,22 @@ import { pool } from "../db";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 
-
-const JWT_SECRET = process.env.JWT_SECRET;
+const JWT_SECRET = process.env.JWT_SECRET as string; // ✅ Assert it's a string
 
 // ✅ REGISTER USER
-export const registerUser = async (req, res) => {
+export const registerUser = async (req: Request, res: Response): Promise<Response> => {
   try {
-    const { email, password, fullName, phone } = req.body;
+    const { email, password, fullName, phone } = req.body as {
+      email: string;
+      password: string;
+      fullName: string;
+      phone?: string;
+    };
 
     if (!email || !password || !fullName) {
       return res.status(400).json({ success: false, error: "All fields are required." });
     }
 
-    // Check if user already exists
     const { data: existingUser } = await supabase
       .from("users")
       .select("*")
@@ -31,8 +34,7 @@ export const registerUser = async (req, res) => {
       });
     }
 
-    // Create user in Supabase Auth
-    const { data, error } = await supabase.auth.signUp({
+    const { error } = await supabase.auth.signUp({
       email,
       password,
       options: {
@@ -58,17 +60,14 @@ export const registerUser = async (req, res) => {
 };
 
 // ✅ LOGIN USER
-export const loginUser = async (req, res) => {
+export const loginUser = async (req: Request, res: Response): Promise<Response> => {
   try {
-    const { email, password } = req.body;
+    const { email, password } = req.body as { email: string; password: string };
 
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
 
     if (error) {
-      // 📨 Handle unverified email case
       if (error.code === "email_not_confirmed") {
-        console.warn("⚠️ Email not confirmed, resending verification link...");
-
         await supabase.auth.resend({
           type: "signup",
           email,
@@ -82,11 +81,9 @@ export const loginUser = async (req, res) => {
         });
       }
 
-      console.error("❌ Login error:", error.message);
       return res.status(400).json({ success: false, error: error.message });
     }
 
-    // ✅ Generate 7-day token
     const token = jwt.sign(
       { id: data.user.id, email: data.user.email },
       JWT_SECRET,
@@ -97,7 +94,7 @@ export const loginUser = async (req, res) => {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "strict",
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
     return res.status(200).json({
@@ -113,28 +110,23 @@ export const loginUser = async (req, res) => {
   }
 };
 
-
-/**
- * Logs out the current user.
- */
-export const logoutUser = async (req: Request, res: Response) => {
+// ✅ LOGOUT
+export const logoutUser = async (req: Request, res: Response): Promise<Response> => {
   try {
     const { error } = await supabase.auth.signOut();
     if (error) return res.status(400).json({ error: error.message });
 
     return res.status(200).json({ message: "Logged out successfully" });
-  } catch (err: any) {
+  } catch (err) {
     console.error("❌ logoutUser error:", err);
     return res.status(500).json({ error: "Internal Server Error" });
   }
 };
 
-/**
- * Handles forgot password and sends reset email.
- */
-export const forgotPassword = async (req: Request, res: Response) => {
+// ✅ FORGOT PASSWORD
+export const forgotPassword = async (req: Request, res: Response): Promise<Response> => {
   try {
-    const { email } = req.body;
+    const { email } = req.body as { email: string };
 
     if (!email) return res.status(400).json({ error: "Email is required" });
 
@@ -144,18 +136,14 @@ export const forgotPassword = async (req: Request, res: Response) => {
     return res.status(200).json({
       message: "Password reset email sent. Check your inbox.",
     });
-  } catch (err: any) {
+  } catch (err) {
     console.error("❌ forgotPassword error:", err);
     return res.status(500).json({ error: "Internal Server Error" });
   }
 };
- 
 
-/**
- * Verifies if the user's email is confirmed in Supabase.
- * The frontend should call this after a user clicks the verification link.
- */
-export const verifyEmailStatus = async (req: Request, res: Response) => {
+// ✅ VERIFY EMAIL STATUS
+export const verifyEmailStatus = async (req: Request, res: Response): Promise<Response> => {
   try {
     const token = req.headers.authorization?.replace("Bearer ", "");
 
@@ -163,7 +151,6 @@ export const verifyEmailStatus = async (req: Request, res: Response) => {
       return res.status(401).json({ error: "Missing or invalid authorization token" });
     }
 
-    // Get the user info from the access token
     const { data, error } = await supabase.auth.getUser(token);
 
     if (error || !data?.user) {
@@ -184,15 +171,15 @@ export const verifyEmailStatus = async (req: Request, res: Response) => {
         verified: false,
       });
     }
-  } catch (err: any) {
+  } catch (err) {
     console.error("❌ verifyEmailStatus error:", err);
     return res.status(500).json({ error: "Internal Server Error" });
   }
 };
 
-export const getMe = async (req: Request, res: Response) => {
+// ✅ GET AUTHENTICATED USER
+export const getMe = async (req: Request, res: Response): Promise<Response> => {
   try {
-    // Get token from either cookie or bearer
     const bearer = req.headers.authorization?.split(" ")[1];
     const token = bearer || req.cookies?.auth_token;
 
@@ -200,10 +187,8 @@ export const getMe = async (req: Request, res: Response) => {
       return res.status(401).json({ error: "Unauthorized" });
     }
 
-    // Verify JWT
     const decoded = jwt.verify(token, JWT_SECRET) as { id: string; email: string };
 
-    // Fetch user with role from DB
     const result = await pool.query(
       "SELECT id, email, role FROM users WHERE id = $1 LIMIT 1",
       [decoded.id]
@@ -216,7 +201,7 @@ export const getMe = async (req: Request, res: Response) => {
     const user = result.rows[0];
 
     return res.status(200).json({
-      user: { id: user.id, email: user.email, role: user.role, },
+      user: { id: user.id, email: user.email, role: user.role },
       role: user.role || "user",
     });
   } catch (err) {

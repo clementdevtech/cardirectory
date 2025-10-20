@@ -40,13 +40,29 @@ jobs:
         working-directory: frontend
         run: npm run build
 
+      # ✅ Add .htaccess file into dist before upload
+      - name: Add .htaccess for SPA routing
+        working-directory: frontend/dist
+        run: |
+          cat << 'EOF' > .htaccess
+          Options -MultiViews
+          RewriteEngine On
+          RewriteBase /
+          # If a file or directory exists, serve it directly
+          RewriteCond %{REQUEST_FILENAME} -f [OR]
+          RewriteCond %{REQUEST_FILENAME} -d
+          RewriteRule ^ - [L]
+          # Otherwise redirect to index.html
+          RewriteRule ^ index.html [L]
+          EOF
+
       - name: Deploy build to DirectAdmin via FTP
         uses: SamKirkland/FTP-Deploy-Action@v4.3.4
         with:
           server: ${{ secrets.FTP_SERVER }}
           username: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}
-          local-dir: frontend/dist  # Vite outputs to /dist instead of /build
+          local-dir: frontend/dist  # Vite outputs to /dist
           server-dir: ${{ secrets.FTP_PATH }}
           method: ftp
           dangerous-clean-slate: true

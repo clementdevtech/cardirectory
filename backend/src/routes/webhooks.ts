@@ -1,7 +1,7 @@
 import express from "express";
 import { updatePaymentStatus } from "../models/payments";
 import { createSubscription } from "../models/subscriptions";
-import { log } from "../logger";
+import logger from "../logger";
 const router = express.Router();
 
 /**
@@ -11,7 +11,7 @@ const router = express.Router();
 router.post("/mpesa", async (req, res) => {
   try {
     const body = req.body;
-    log.info("mpesa webhook:", JSON.stringify(body).slice(0, 400));
+    logger.info("mpesa webhook:", JSON.stringify(body).slice(0, 400));
     // Daraja returns different shapes — sample shape:
     // body.Body.stkCallback with CheckoutRequestID and ResultCode
     const callback = body?.Body?.stkCallback;
@@ -41,7 +41,7 @@ router.post("/mpesa", async (req, res) => {
     // Respond quickly
     return res.json({ ResultCode: 0, ResultDesc: "Accepted" });
   } catch (err: any) {
-    log.error("mpesa webhook error", err?.message || err);
+    logger.error("mpesa webhook error", err?.message || err);
     return res.status(500).json({ error: "server error" });
   }
 });

@@ -1,63 +1,67 @@
 import { Request, Response } from "express";
 import { supabase } from "../supabaseClient";
 
-export const handlePesaPalWebhook = async (req: Request, res: Response) => {
+export const handlePesaPalWebhook = async (req: Request, res: Response): Promise<Response | void> => {
   try {
-    const body = req.body;
+    const body = req.body as {
+      data?: {
+        merchant_reference?: string;
+        status?: string;
+      };
+    };
 
-    // PesaPal sends various fields; in API 3.0 JSON format status updates are posted (see docs) :contentReference[oaicite:2]{index=2}
     const merchant_reference = body.data?.merchant_reference;
     const status = body.data?.status;
 
     if (!merchant_reference) {
-      return res.status(400).end();
+      return res.status(400).json({ error: "Missing merchant_reference" });
     }
 
-    // find payment
-    const { data: payment } = await supabase
+    // ✅ Fetch payment record
+    const { data: payment, error: fetchError } = await supabase
       .from("payments")
       .select("user_id, plan_name, amount, status")
       .eq("merchant_reference", merchant_reference)
       .single();
 
-    if (!payment) {
-      // unknown reference
+    if (fetchError || !payment) {
       return res.status(404).json({ error: "Reference not found" });
     }
 
     if (status === "COMPLETED" && payment.status !== "success") {
-      // update payment status
+      // ✅ Update payment status
       await supabase
         .from("payments")
         .update({ status: "success" })
         .eq("merchant_reference", merchant_reference);
 
-      // create subscription (30 days for example)
+      // ✅ Create or update subscription
       const endDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
 
       await supabase.from("subscriptions").upsert({
         user_id: payment.user_id,
         plan_name: payment.plan_name,
         price: payment.amount,
-        listings_allowed: 50,   // example quota
+        listings_allowed: 50,
         listings_used: 0,
         start_date: new Date().toISOString(),
         end_date: endDate,
         status: "active",
       });
 
-      // promote user to dealer
+      // ✅ Promote user to dealer
       await supabase.from("users").update({ role: "dealer" }).eq("id", payment.user_id);
-      await supabase.from("user_roles").upsert(
-        { user_id: payment.user_id, role: "dealer" },
-        { onConflict: ["user_id"] }
-      );
+
+      // ✅ Fix your original error here:
+      await supabase
+        .from("user_roles")
+        .upsert([{ user_id: payment.user_id, role: "dealer" }], { onConflict: "user_id" });
+      // 👆 MUST pass an *array* to upsert() when using onConflict
     }
 
-    // Respond back exactly as expected for IPN
-    res.status(200).json({ received: true });
+    return res.status(200).json({ received: true });
   } catch (err: any) {
     console.error("❌ PesaPal webhook error:", err);
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err.message });
   }
 };
