@@ -3,7 +3,7 @@ name: 🚀 Deploy Frontend to DirectAdmin
 on:
   push:
     branches:
-      - main
+      - master
 
 jobs:
   build-and-deploy:
