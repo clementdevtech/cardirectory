@@ -16,6 +16,7 @@ const allowedOrigins = [
   "http://192.168.100.25:8080",
   "https://cardirectory.pages.dev",
   "https://cardirectory.co.ke",
+  "https://www.cardirectory.co.ke",
 ];
 
 
