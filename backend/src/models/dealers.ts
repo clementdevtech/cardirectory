@@ -86,30 +86,6 @@ export async function setDealerVerified(id: string): Promise<boolean> {
   }
 }
 
-/**
- * Mark a dealer as verified.
- * Returns true if the update succeeded, false otherwise.
- */
-export async function setDealerVerified(id: string): Promise<boolean> {
-  const sql = `
-    UPDATE dealers
-    SET verified = true,
-        verified_at = now()
-    WHERE id = $1
-    RETURNING id
-  `;
-
-  try {
-    const result = await query<{ id: string }>(sql, [id]);
-    return (result.rowCount ?? result.rows.length) > 0;
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    logger?.error?.(`setDealerVerified error (id=${id}): ${message}`);
-    return false;
-  }
-}
-
-
 export async function validateDealer(nationalId: string, kraPin: string) {
   try {
     const idValid = await apiNinjas.validateNationalID(nationalId);
