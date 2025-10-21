@@ -9,11 +9,10 @@ const VerifyEmail = () => {
   const [email, setEmail] = useState<string | null>(null);
   const [isResending, setIsResending] = useState(false);
 
-  // Extract token + email from URL
   useEffect(() => {
-    const params = new URLSearchParams(window.location.hash.replace("#", "?"));
-    const token = params.get("access_token");
-    const emailFromUrl = params.get("email"); // if sent in redirect
+    const params = new URLSearchParams(window.location.search); // ✅ Corrected
+    const token = params.get("token"); // ✅ matches backend
+    const emailFromUrl = params.get("email");
 
     if (emailFromUrl) setEmail(emailFromUrl);
 

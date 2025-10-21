@@ -6,6 +6,9 @@ import paymentRoutes from "./routes/payments";
 import webhookRoutes from "./routes/webhooks";
 import locationsRouter from "./routes/locations";
 import auth from "./routes/auth";
+import emailRoutes from "./routes/emailRoutes";
+
+
 
 dotenv.config();
 const app = express();
@@ -34,6 +37,7 @@ app.use("/api/payments", paymentRoutes);
 app.use("/api/webhooks", webhookRoutes);
 app.use("/api/locations", locationsRouter);
 app.use("/api/auth", auth);
+app.use("/api/email", emailRoutes);
 
 app.get("/", (req, res) => res.send("API running 🚀"));
 

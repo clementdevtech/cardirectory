@@ -1,10 +1,11 @@
 import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Car, Menu, X, LogOut, LayoutDashboard } from "lucide-react";
+import { Menu, X, LogOut, LayoutDashboard } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import logo from "@/assets/logo.png";
 
 const Navbar = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -14,7 +15,7 @@ const Navbar = () => {
   const panelRef = useRef<HTMLDivElement>(null);
   const [touchStartX, setTouchStartX] = useState(0);
   const [touchEndX, setTouchEndX] = useState(0);
- //console.log(user, userRole, signOut);
+
   // ✅ Handle Logout
   const handleLogout = async () => {
     await signOut();
@@ -57,11 +58,13 @@ const Navbar = () => {
     >
       <div className="container mx-auto px-4">
         <div className="flex items-center justify-between h-16">
-          {/* Logo */}
+          {/* ✅ Logo + Brand Name */}
           <Link to="/" className="flex items-center space-x-2">
-            <div className="gradient-hero p-2 rounded-lg">
-              <Car className="h-6 w-6 text-primary-foreground" />
-            </div>
+            <img
+              src={logo}
+              alt="CarDirectory Logo"
+              className="h-8 w-8 object-contain rounded-md"
+            />
             <span className="font-heading text-xl font-bold">
               Car<span className="text-primary">Directory</span>
             </span>

@@ -57,8 +57,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             setUser(data.user);
             setUserRole(data.role || "user");
           }
-        } catch {
-          console.warn("Failed to restore session.");
+        } catch (err) {
+          console.warn("Failed to restore session.", err.message);
         }
       } else {
         const { data: { session } } = await supabase.auth.getSession();
@@ -113,32 +113,63 @@ const fetchUserRole = async () => {
     }
   };
 
-  const signIn = async (email: string, password: string) => {
+const signIn = async (email: string, password: string) => {
+  try {
+    const res = await fetch(`${API_BASE_URL}/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+
+    let data: any = {};
     try {
-      const res = await fetch(`${API_BASE_URL}/auth/login`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
-      });
-
-      const data = await res.json();
-      if (data.error) return { success: false, error: data.error };
-
-      if (data.token) localStorage.setItem("auth_token", data.token);
-
-      setUser(data.user);
-      setSession(data.session);
-      await fetchUserRole();
-
-
-      toast.success("Login successful!");
-      return { success: true, message: "Login successful!" };
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Unknown error";
-      toast.error(message);
-      return { success: false, error: message };
+      data = await res.json();
+    } catch {
+      data = {};
     }
-  };
+
+    if (!res.ok) {
+      const errorMessage =
+        data.error ||
+        (res.status === 400
+          ? "Invalid request. Please check your input."
+          : res.status === 401
+          ? "Unauthorized. Incorrect email or password."
+          : res.status === 403
+          ? "Access forbidden. Contact support if this persists."
+          : res.status === 404
+          ? "User not found. Please register first."
+          : res.status >= 500
+          ? "Server error. Please try again later."
+          : "Unexpected error occurred.");
+
+      console.error(`❌ HTTP ${res.status}: ${errorMessage}`);
+      toast.error(errorMessage); // ✅ Works now
+
+      return { success: false, status: res.status, error: errorMessage };
+    }
+
+    if (data.error) {
+      toast.error(data.error);
+      return { success: false, status: res.status, error: data.error };
+    }
+
+    if (data.token) localStorage.setItem("auth_token", data.token);
+    setUser(data.user);
+    setSession(data.session);
+    await fetchUserRole();
+
+    toast.success("Login successful!");
+    return { success: true, status: res.status, message: "Login successful!" };
+  } catch (err: any) {
+    const message = err.message || "Network or unexpected error.";
+    console.error("⚠️ Login request failed:", err);
+    toast.error(message); // ✅ Works now
+    return { success: false, status: 0, error: message };
+  }
+};
+
+
 
   const signOut = async () => {
     await supabase.auth.signOut();

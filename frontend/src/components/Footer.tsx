@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { Car, Mail, Phone, MapPin } from "lucide-react";
+import logo from "@/assets/logo.png";
 
 const Footer = () => {
   return (
@@ -9,8 +10,12 @@ const Footer = () => {
           {/* Brand */}
           <div className="space-y-4">
             <div className="flex items-center space-x-2">
-              <div className="gradient-hero p-2 rounded-lg">
-                <Car className="h-6 w-6 text-primary-foreground" />
+              <div className=" rounded-lg">
+                <img
+              src={logo}
+              alt="CarDirectory Logo"
+              className="h-8 w-8 object-contain rounded-md"
+            />
               </div>
               <span className="font-heading text-xl font-bold">
                 Car<span className="text-primary">Directory</span>

@@ -1,139 +1,79 @@
 import React, { useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useNavigate } from "react-router-dom";
-import { Eye, EyeOff, Loader2, Car } from "lucide-react";
+import { Eye, EyeOff, Loader2 } from "lucide-react";
 import { toast } from "react-toastify";
+import logo from "@/assets/logo.png";
 
-const GetStarted = () => {
-  const { signIn, signUp } = useAuth();
+const Login = () => {
+  const { signIn } = useAuth();
   const navigate = useNavigate();
 
-  const [isLogin, setIsLogin] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [emailError, setEmailError] = useState("");
   const [form, setForm] = useState({
-    fullName: "",
-    phone: "",
     email: "",
     password: "",
   });
 
-  const validateEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  const validateEmail = (email: string) =>
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 
-const handleSubmit = async (e: React.FormEvent) => {
-  e.preventDefault();
-  setEmailError("");
-  setIsLoading(true);
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setEmailError("");
+    setIsLoading(true);
 
-  try {
-    if (isLogin) {
+    try {
+      if (!validateEmail(form.email)) {
+        setEmailError("Please enter a valid email address.");
+        setIsLoading(false);
+        return;
+      }
+
       const { success, error } = await signIn(form.email, form.password);
-      if (!success) {
-        if (data.error) {
-          toast.warning(
-            data.error ||
-            "Your account isn't verified yet. We've resent a verification email. Please check your inbox."
-            );
-            return { success: false, error: data.error };
-            }else {
-              toast.error(error || "Invalid credentials.");
-              }
-              return;
-              }
-              toast.success("Welcome back!");
-              navigate("/");
-              } else {
-                const { success, error } = await signUp(
-                  form.email,
-                  form.password,
-                  form.fullName,
-                  form.phone
-                );
-      if (!success) throw error;
-      toast.success("Account created! Please check your email for verification.");
-      setIsLogin(true);
-    }
-  } catch (err: any) {
-    toast.error(err.message || "Something went wrong.");
-  } finally {
-    setIsLoading(false);
-  }
-};
 
+      if (!success) {
+        toast.error(error || "Invalid credentials.");
+        setIsLoading(false);
+        return;
+      }
+
+      toast.success("Welcome back!");
+      navigate("/");
+    } catch (err: any) {
+      toast.error(err.message || "Something went wrong.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100 p-4">
-      <div className="bg-white shadow-2xl rounded-2xl w-full max-w-md p-8 space-y-6 transition-all duration-300 hover:shadow-blue-100">
-        {/* Header */}
+      <div className="bg-white shadow-2xl rounded-2xl w-full max-w-md p-8 space-y-6 transition-all duration-300 hover:shadow-red-100">
+        {/* Logo + Title */}
         <div className="flex flex-col items-center text-center">
           <div className="flex items-center justify-center space-x-2 mb-3">
-            <div className="bg-blue-600 p-2 rounded-lg">
-              <Car className="h-6 w-6 text-white" />
+            <div className="p-2 rounded-lg">
+              <img
+                src={logo}
+                alt="CarDirectory Logo"
+                className="h-10 w-10 object-contain rounded-md"
+              />
             </div>
             <span className="text-2xl font-bold text-gray-800">
-              Car<span className="text-blue-600">Directory</span>
+              Car<span className="text-[#8B0000]">Directory</span>
             </span>
           </div>
           <p className="text-gray-600">
-            {isLogin
-              ? "Welcome back! Please log in to continue."
-              : "Create your account to get started."}
+            Welcome back! Please log in to continue.
           </p>
         </div>
 
-        {/* Toggle Switch */}
-        <div className="flex justify-center items-center gap-3 mt-4">
-          <span
-            className={`cursor-pointer font-medium transition ${
-              isLogin ? "text-blue-600" : "text-gray-500"
-            }`}
-            onClick={() => setIsLogin(true)}
-          >
-            Login
-          </span>
-          <div
-            className={`relative w-12 h-6 flex items-center bg-gray-200 rounded-full p-1 cursor-pointer transition`}
-            onClick={() => setIsLogin(!isLogin)}
-          >
-            <div
-              className={`absolute w-5 h-5 bg-blue-600 rounded-full shadow transform transition-transform duration-300 ${
-                isLogin ? "translate-x-0" : "translate-x-6"
-              }`}
-            />
-          </div>
-          <span
-            className={`cursor-pointer font-medium transition ${
-              !isLogin ? "text-blue-600" : "text-gray-500"
-            }`}
-            onClick={() => setIsLogin(false)}
-          >
-            Register
-          </span>
-        </div>
-
-        {/* Form */}
+        {/* Login Form */}
         <form onSubmit={handleSubmit} className="space-y-5 mt-4">
-          {!isLogin && (
-            <>
-              <input
-                type="text"
-                placeholder="Full Name"
-                value={form.fullName}
-                onChange={(e) => setForm({ ...form, fullName: e.target.value })}
-                required
-                className="w-full p-3 border rounded-xl outline-none focus:ring-2 focus:ring-blue-200"
-              />
-              <input
-                type="text"
-                placeholder="Phone Number"
-                value={form.phone}
-                onChange={(e) => setForm({ ...form, phone: e.target.value })}
-                className="w-full p-3 border rounded-xl outline-none focus:ring-2 focus:ring-blue-200"
-              />
-            </>
-          )}
-
+          {/* Email Field */}
           <div>
             <input
               type="email"
@@ -142,7 +82,9 @@ const handleSubmit = async (e: React.FormEvent) => {
               onChange={(e) => setForm({ ...form, email: e.target.value })}
               required
               className={`w-full p-3 border rounded-xl outline-none focus:ring-2 ${
-                emailError ? "border-red-500 ring-red-200" : "focus:ring-blue-200"
+                emailError
+                  ? "border-red-500 ring-red-200"
+                  : "focus:ring-[#b44b3e]"
               }`}
             />
             {emailError && (
@@ -150,6 +92,7 @@ const handleSubmit = async (e: React.FormEvent) => {
             )}
           </div>
 
+          {/* Password Field */}
           <div className="relative">
             <input
               type={showPassword ? "text" : "password"}
@@ -157,7 +100,7 @@ const handleSubmit = async (e: React.FormEvent) => {
               value={form.password}
               onChange={(e) => setForm({ ...form, password: e.target.value })}
               required
-              className="w-full p-3 border rounded-xl outline-none focus:ring-2 focus:ring-blue-200 pr-10"
+              className="w-full p-3 border rounded-xl outline-none focus:ring-2 focus:ring-[#b44b3e] pr-10"
             />
             <button
               type="button"
@@ -168,37 +111,47 @@ const handleSubmit = async (e: React.FormEvent) => {
             </button>
           </div>
 
-          {/* Submit Button */}
+          {/* Login Button */}
           <button
             type="submit"
             disabled={isLoading}
             className={`w-full py-3 rounded-xl font-semibold text-white transition ${
               isLoading
-                ? "bg-blue-400 cursor-not-allowed"
-                : "bg-blue-600 hover:bg-blue-700 shadow-md hover:shadow-blue-200"
+                ? "bg-[#b44b3e] opacity-70 cursor-not-allowed"
+                : "bg-[#b44b3e] hover:bg-[#8B0000] shadow-md hover:shadow-red-200"
             }`}
           >
             {isLoading ? (
               <Loader2 className="animate-spin mx-auto text-white" />
-            ) : isLogin ? (
-              "Login"
             ) : (
-              "Create Account"
+              "Login"
             )}
           </button>
 
-          {/* Forgot Password (only for Login) */}
-          {isLogin && (
-            <div className="text-center text-sm text-gray-600">
-              <a href="/forgot-password" className="text-blue-600 hover:underline">
-                Forgot Password?
-              </a>
-            </div>
-          )}
+          {/* Forgot Password */}
+          <div className="text-center text-sm text-gray-600">
+            <a
+              href="/forgot-password"
+              className="text-[#b44b3e] hover:underline font-medium"
+            >
+              Forgot Password?
+            </a>
+          </div>
+
+          {/* Register Redirect */}
+          <div className="text-center text-sm text-gray-600">
+            Don’t have an account?{" "}
+            <a
+              href="/register"
+              className="text-[#b44b3e] font-semibold hover:underline"
+            >
+              Create one
+            </a>
+          </div>
         </form>
       </div>
     </div>
   );
 };
 
-export default GetStarted;
+export default Login;

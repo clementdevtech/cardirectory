@@ -1,5 +1,5 @@
-import { Toaster } from "@/components/ui/toaster";
-import { Toaster as Sonner } from "@/components/ui/sonner";
+import { Toaster as ShadToaster } from "@/components/ui/toaster";
+import { Toaster as SonnerToaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
@@ -29,13 +29,17 @@ import ForgotPassword from "./pages/auth/ForgotPassword";
 import ResetPassword from "./pages/auth/ResetPassword";
 import VerifyEmail from "./pages/auth/VerifyEmail";
 
-// Role-specific dashboards
+// Dashboards
 import AdminDashboard from "./pages/AdminDashboard";
 import DealerDashboard from "./pages/DealerDashboard";
 
+// ✅ Toastify for global notifications
+import { ToastContainer } from "react-toastify";
+import "react-toastify/dist/ReactToastify.css";
+
 const queryClient = new QueryClient();
 
-// 🧱 Role-based route guard
+// 🧱 Protected route with role-based guard
 const ProtectedRoute = ({
   children,
   allowedRoles,
@@ -45,7 +49,13 @@ const ProtectedRoute = ({
 }) => {
   const { user, userRole, isLoading } = useAuth();
 
-  if (isLoading) return <div className="p-8 text-center">Loading...</div>;
+  if (isLoading)
+    return (
+      <div className="min-h-screen flex items-center justify-center text-gray-600">
+        Loading...
+      </div>
+    );
+
   if (!user) return <Navigate to="/login" replace />;
   if (allowedRoles && !allowedRoles.includes(userRole || ""))
     return <Navigate to="/" replace />;
@@ -53,10 +63,11 @@ const ProtectedRoute = ({
   return <>{children}</>;
 };
 
+// 🧭 Router setup
 const router = createBrowserRouter(
   createRoutesFromElements(
     <>
-      {/* Public routes */}
+      {/* Public Routes */}
       <Route path="/" element={<Home />} />
       <Route path="/cars" element={<BrowseCars />} />
       <Route path="/cars/:id" element={<CarDetail />} />
@@ -64,15 +75,14 @@ const router = createBrowserRouter(
       <Route path="/pricing" element={<Pricing />} />
       <Route path="/contact" element={<Contact />} />
 
-      {/* Auth routes */}
+      {/* Auth Routes */}
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="/reset-password" element={<ResetPassword />} />
       <Route path="/verify-email" element={<VerifyEmail />} />
 
-
-      {/* Auth-protected routes */}
+      {/* Protected Routes */}
       <Route
         path="/post-vehicle"
         element={
@@ -82,7 +92,7 @@ const router = createBrowserRouter(
         }
       />
 
-      {/* Admin & Dealer dashboards */}
+      {/* Dashboards */}
       <Route
         path="/admin"
         element={
@@ -100,6 +110,7 @@ const router = createBrowserRouter(
         }
       />
 
+      {/* Checkout + 404 */}
       <Route path="/checkout" element={<Checkout />} />
       <Route path="*" element={<NotFound />} />
     </>
@@ -112,12 +123,35 @@ const router = createBrowserRouter(
   }
 );
 
+// ⚙️ Global app provider stack
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
       <AuthProvider>
-        <Toaster />
-        <Sonner />
+        {/* ✅ React-Toastify (Red-Brown Brand Theme) */}
+        <ToastContainer
+          position="top-center"
+          autoClose={4000}
+          hideProgressBar={false}
+          newestOnTop={false}
+          closeOnClick
+          pauseOnFocusLoss
+          draggable
+          pauseOnHover
+          theme="colored"
+          toastStyle={{
+            backgroundColor: "#8B0000", // red-brown brand tone
+            color: "#fff",
+            borderRadius: "12px",
+            fontWeight: "500",
+          }}
+        />
+
+        {/* ✅ Optional Shadcn + Sonner toasters (keep for internal UI alerts) */}
+        <SonnerToaster position="top-center" richColors />
+        <ShadToaster />
+
+        {/* ✅ Main Router */}
         <RouterProvider router={router} />
       </AuthProvider>
     </TooltipProvider>
