@@ -44,30 +44,32 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [userRole, setUserRole] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
+  // ⚡ Helper to timeout slow network requests
+const fetchWithTimeout = (url: string, options: any = {}, timeout = 7000) =>
+  Promise.race([
+    fetch(url, options),
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("Request timed out")), timeout)
+    ),
+  ]);
+
   useEffect(() => {
     const initializeAuth = async () => {
       const token = localStorage.getItem("auth_token");
-
       if (token) {
         try {
-          const res = await fetch(`${API_BASE_URL}/auth/me`, {
+          const res = await fetchWithTimeout(`${API_BASE_URL}/auth/me`, {
             headers: { Authorization: `Bearer ${token}` },
           });
-          const data = await res.json();
-          if (data?.user) {
+          if (res.ok) {
+            const data = await res.json();
             setUser(data.user);
             setUserRole(data.role || "user");
           }
-        } catch (err) {
-          console.warn("Failed to restore session.", err.message);
+        } catch (err: any) {
+          console.warn("Session restore failed:", err.message);
         }
-      } else {
-        const { data: { session } } = await supabase.auth.getSession();
-        setSession(session);
-        setUser(session?.user ?? null);
-        if (session?.user) await fetchUserRole();
       }
-
       setIsLoading(false);
     };
 
