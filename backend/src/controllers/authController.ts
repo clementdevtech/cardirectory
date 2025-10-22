@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import bcrypt from "bcryptjs";
-import jwt, { SignOptions } from "jsonwebtoken";
-import { query } from "../db"; // ✅ your pg helper
+import jwt, { SignOptions, JwtPayload } from "jsonwebtoken";
+import { query, pool } from "../db"; // ✅ your pg helper
 import { sendPasswordResetEmail, sendVerificationEmail } from "./emailController"; // keep if you use it for reset emails
 import dotenv from "dotenv";
 
@@ -25,7 +25,7 @@ export const sendVerificationLink = async (
 
     const verificationToken = jwt.sign({ email }, JWT_SECRET as string, options);
 
-    const verifyLink = `${FRONTEND_URL}/verify-email?token=${verificationToken}`;
+    const verifyLink = `${FRONTEND_URL}/verify-email?token=${encodeURIComponent(verificationToken)}&email=${encodeURIComponent(email)}`;
 
     await sendVerificationEmail(email, verifyLink);
 
@@ -99,7 +99,7 @@ export const loginUser = async (req: Request, res: Response): Promise<Response> 
 
     // 1️⃣ Get user from database
     const sql = `
-      SELECT id, full_name, email, password, role, created_at, email_verified
+      SELECT id, full_name, email, password, role, created_at, is_verified
       FROM users
       WHERE email = $1
       LIMIT 1
@@ -119,7 +119,7 @@ export const loginUser = async (req: Request, res: Response): Promise<Response> 
     }
 
     // 3️⃣ If email not verified — generate + save new token
-    if (!user.email_verified) {
+    if (!user.is_verified) {
       const verificationToken = await sendVerificationLink(email);
 
       // 🧩 Store token in the database
@@ -213,38 +213,94 @@ export const forgotPassword = async (req: Request, res: Response): Promise<Respo
 =========================== */
 export const verifyEmailStatus = async (req: Request, res: Response): Promise<Response> => {
   try {
-    const { token } = req.query;
-
-    console.log(token);
-
-    if (!token) {
-      return res.status(400).json({ success: false, error: "Missing verification token" });
+    const header = req.headers.authorization;
+    if (!header?.startsWith("Bearer ")) {
+      return res.status(400).json({ verified: false, error: "Missing token" });
     }
 
-    // Check token in database
-    const result = await query("SELECT id, email, is_verified FROM users WHERE verification_token = $1", [token]);
+    const token = header.split(" ")[1];
+    const decoded = jwt.verify(token, JWT_SECRET);
+    console.log("Decoded OK:", decoded);
 
-    if (result.rows.length === 0) {
-      return res.status(400).json({ success: false, error: "Invalid or expired verification token" });
+    // ✅ Type guard to ensure it's a JwtPayload
+    if (typeof decoded !== "object" || !("email" in decoded)) {
+      return res.status(400).json({ verified: false, error: "Invalid token payload" });
     }
 
-    const user = result.rows[0];
+    const email = (decoded as JwtPayload).email as string;
 
+    if (!email) {
+      return res.status(400).json({ verified: false, error: "Email missing in token" });
+    }
+
+    await pool.query("UPDATE users SET is_verified = true WHERE email = $1", [email]);
+
+    return res.json({ verified: true });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Unknown verification error";
+    console.error("verifyEmail error:", message);
+    return res.status(400).json({ verified: false, error: message });
+  }
+};
+
+/* resendverification email*/
+
+export const resendVerification = async (req: Request, res: Response): Promise<Response> => {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({ error: "Email is required." });
+    }
+
+    // 🔍 1. Fetch user + last_verification_sent_at
+    const { rows } = await pool.query(
+      "SELECT id, is_verified, last_verification_sent_at FROM users WHERE email = $1 LIMIT 1",
+      [email]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: "No account found with that email." });
+    }
+
+    const user = rows[0];
+
+    // ✅ 2. If already verified, no need to resend
     if (user.is_verified) {
-      return res.status(200).json({ success: true, message: "Email already verified" });
+      return res.status(400).json({ error: "This email is already verified." });
     }
 
-    // Mark user as verified
-    await query("UPDATE users SET is_verified = true, verification_token = NULL WHERE id = $1", [user.id]);
+    // ⏱ 3. Check cooldown (60 seconds)
+    if (user.last_verification_sent_at) {
+      const lastSent = new Date(user.last_verification_sent_at).getTime();
+      const now = Date.now();
+      const diffSeconds = Math.floor((now - lastSent) / 1000);
 
-    return res.status(200).json({
+      if (diffSeconds < 60) {
+        return res.status(429).json({
+          error: `Please wait ${60 - diffSeconds}s before requesting another verification email.`,
+        });
+      }
+    }
+
+    // ✉️ 4. Generate new verification token + link
+    const token = await sendVerificationLink(email);
+
+    // 💾 5. Save token + update last_verification_sent_at
+    await pool.query(
+      `UPDATE users 
+       SET verification_token = $1, last_verification_sent_at = now()
+       WHERE email = $2`,
+      [token, email]
+    );
+
+    // ✅ 6. Respond success
+    return res.json({
       success: true,
-      message: "Email verified successfully!",
-      verified: true,
+      message: "Verification email sent successfully. Check your inbox!",
     });
-  } catch (err) {
-    console.error("❌ verifyEmailStatus error:", err);
-    return res.status(500).json({ success: false, error: "Internal Server Error" });
+  } catch (err: any) {
+    console.error("❌ resendVerification error:", err.message);
+    return res.status(500).json({ error: "Failed to send verification email." });
   }
 };
 

@@ -6,6 +6,7 @@ import {
   forgotPassword,
   verifyEmailStatus,
   getMe,
+  resendVerification,
 } from "../controllers/authController";
 
 const router = express.Router();
@@ -15,6 +16,7 @@ router.post("/login", loginUser);
 router.post("/logout", logoutUser);
 router.post("/forgot-password", forgotPassword);
 router.get("/verify-email", verifyEmailStatus);
+router.post("/resend-verification", resendVerification);
 router.get("/me", getMe);
 
 export default router;

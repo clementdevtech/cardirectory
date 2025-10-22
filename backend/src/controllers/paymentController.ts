@@ -1,10 +1,8 @@
 import { Request, Response } from "express";
-import crypto from "crypto";
 import fetch from "node-fetch";
 import { supabase } from "../supabaseClient";
 
-
-
+// ✅ Environment Setup
 const CONSUMER_KEY = process.env.PESAPAL_CONSUMER_KEY!;
 const CONSUMER_SECRET = process.env.PESAPAL_CONSUMER_SECRET!;
 const ENV = process.env.PESAPAL_ENVIRONMENT === "production" ? "live" : "sandbox";
@@ -14,11 +12,19 @@ const BASE_URL =
     ? "https://cybqa.pesapal.com/pesapalv3"
     : "https://pay.pesapal.com/v3";
 
+// ✅ Cached token (avoid fetching token repeatedly)
+let cachedToken: string | null = null;
+let tokenExpiry: number | null = null;
+
 /**
- * STEP 1 — Get Pesapal Access Token
- * (Pesapal v3 now uses OAuth2, not OAuth1)
+ * STEP 1 — Get Pesapal Access Token (OAuth2)
  */
 async function getPesapalToken(): Promise<string> {
+  // Reuse valid token if available
+  if (cachedToken && tokenExpiry && Date.now() < tokenExpiry) {
+    return cachedToken;
+  }
+
   const resp = await fetch(`${BASE_URL}/api/Auth/RequestToken`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -29,16 +35,19 @@ async function getPesapalToken(): Promise<string> {
   });
 
   const data = await resp.json();
+
   if (!resp.ok || !data.token) {
     console.error("❌ Failed to obtain Pesapal token:", data);
     throw new Error("Could not obtain Pesapal token");
   }
 
+  cachedToken = data.token;
+  tokenExpiry = Date.now() + 55 * 60 * 1000; // Cache for ~55 minutes
   return data.token;
 }
 
 /**
- * STEP 2 — Create order
+ * STEP 2 — Create Pesapal Order
  */
 export const createPesaPalOrder = async (req: Request, res: Response): Promise<Response> => {
   try {
@@ -54,56 +63,49 @@ export const createPesaPalOrder = async (req: Request, res: Response): Promise<R
     }
 
     const merchant_reference = `ORDER-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
-    const callback_url = process.env.PESAPAL_IPN_URL || "https://your-domain.com/api/payments/pesapal/ipn";
+    const callback_url = process.env.PESAPAL_IPN_URL;
 
-    // Step 2.1 — Log pending transaction in DB
-    const { error: insertErr } = await supabase
-      .from("payments")
-      .insert([
-        {
-          user_id,
-          plan_name: plan,
-          amount,
-          method: "pesapal",
-          phone,
-          status: "pending",
-          merchant_reference,
-        },
-      ]);
+    // Log pending transaction
+    const { error: insertErr } = await supabase.from("payments").insert([
+      {
+        user_id,
+        plan_name: plan,
+        amount,
+        method: "pesapal",
+        phone,
+        status: "pending",
+        merchant_reference,
+      },
+    ]);
 
     if (insertErr) {
       console.error("❌ Supabase insert error:", insertErr);
       throw insertErr;
     }
 
-    // Step 2.2 — Obtain Pesapal token
+    // Get token
     const token = await getPesapalToken();
 
-    // Step 2.3 — Build order payload
+    // Build order payload
     const order = {
       id: merchant_reference,
       currency: "KES",
       amount,
       description: `AutoKenya ${plan} plan subscription`,
-      callback_url, // where Pesapal posts IPN updates
-      notification_id: process.env.PESAPAL_NOTIFICATION_ID, // registered notification ID
+      callback_url, // IPN webhook
+      notification_id: process.env.PESAPAL_NOTIFICATION_ID, // from RegisterIPN
       billing_address: {
         phone_number: phone,
-        email_address: "", // optional
+        email_address: "",
         country_code: "KE",
         first_name: "User",
         middle_name: "",
         last_name: "Subscriber",
-        line_1: "",
-        line_2: "",
         city: "Nairobi",
-        state: "",
-        postal_code: "",
-        zip_code: "",
       },
     };
 
-    // Step 2.4 — Create order
+    // Create order
     const resp = await fetch(`${BASE_URL}/api/Transactions/SubmitOrderRequest`, {
       method: "POST",
       headers: {
@@ -114,29 +116,25 @@ export const createPesaPalOrder = async (req: Request, res: Response): Promise<R
     });
 
     const data = await resp.json();
+
     if (!resp.ok || !data.redirect_url) {
       console.error("❌ Pesapal order error:", data);
       throw new Error(data.error || "Failed to create Pesapal order");
     }
 
-    const payment_link = data.redirect_url;
-
     return res.status(200).json({
       success: true,
-      payment_link,
+      payment_link: data.redirect_url,
       merchant_reference,
     });
   } catch (err) {
     console.error("❌ createPesaPalOrder error:", err);
-    const message = err instanceof Error ? err.message : "Unknown error";
-    return res.status(500).json({ error: message });
+    return res.status(500).json({ error: (err as Error).message });
   }
 };
 
-
 /**
- * Pesapal IPN (Webhook)
- * Called by Pesapal when payment status updates.
+ * STEP 3 — Handle Pesapal IPN (Webhook)
  */
 export const handlePesapalIPN = async (req: Request, res: Response) => {
   try {
@@ -148,7 +146,7 @@ export const handlePesapalIPN = async (req: Request, res: Response) => {
 
     console.log("📬 Pesapal IPN received:", req.body);
 
-    // 1️⃣ Update payment status in Supabase
+    // Update payment status in Supabase
     const { data: paymentData, error: updateError } = await supabase
       .from("payments")
       .update({ status: PaymentStatusDescription })
@@ -159,12 +157,12 @@ export const handlePesapalIPN = async (req: Request, res: Response) => {
     if (updateError) throw updateError;
     if (!paymentData) throw new Error("Payment record not found");
 
-    // 2️⃣ Check if payment was successful
+    // Check if payment was successful
     const successfulStatuses = ["COMPLETED", "SUCCESS", "PAID", "Payment Completed"];
     if (successfulStatuses.includes(PaymentStatusDescription.toUpperCase())) {
       const { user_id, plan_name } = paymentData;
 
-      // 3️⃣ Update user role → dealer
+      // Update user role → dealer
       const { error: roleErr } = await supabase
         .from("users")
         .update({ role: "dealer" })
@@ -172,7 +170,7 @@ export const handlePesapalIPN = async (req: Request, res: Response) => {
 
       if (roleErr) throw roleErr;
 
-      // 4️⃣ Ensure entry exists in user_roles (if you have that table)
+      // Update or insert user_roles entry
       const { data: existingRole } = await supabase
         .from("user_roles")
         .select("id")
@@ -180,17 +178,12 @@ export const handlePesapalIPN = async (req: Request, res: Response) => {
         .maybeSingle();
 
       if (existingRole) {
-        await supabase
-          .from("user_roles")
-          .update({ role: "dealer" })
-          .eq("user_id", user_id);
+        await supabase.from("user_roles").update({ role: "dealer" }).eq("user_id", user_id);
       } else {
-        await supabase
-          .from("user_roles")
-          .insert([{ user_id, role: "dealer" }]);
+        await supabase.from("user_roles").insert([{ user_id, role: "dealer" }]);
       }
 
-      console.log(`✅ User ${user_id} upgraded to dealer after payment for ${plan_name}.`);
+      console.log(`✅ User ${user_id} upgraded to dealer after ${plan_name} payment.`);
     } else {
       console.log(`⚠️ Payment not successful yet: ${PaymentStatusDescription}`);
     }
@@ -199,5 +192,42 @@ export const handlePesapalIPN = async (req: Request, res: Response) => {
   } catch (err) {
     console.error("❌ IPN handling error:", err);
     return res.status(500).json({ error: (err as Error).message });
+  }
+};
+
+/**
+ * STEP 4 — Register IPN (Live)
+ * Run once to get your PESAPAL_NOTIFICATION_ID
+ */
+export const registerPesapalIPN = async (req: Request, res: Response) => {
+  try {
+    const token = await getPesapalToken();
+
+    const payload = {
+      url: process.env.PESAPAL_IPN_URL, // must be live HTTPS webhook
+      ipn_notification_type: "GET",
+    };
+
+    const response = await fetch(`${BASE_URL}/api/URLSetup/RegisterIPN`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      console.error("❌ IPN registration failed:", data);
+      return res.status(400).json({ success: false, error: data });
+    }
+
+    console.log("✅ IPN Registered:", data);
+    return res.status(200).json({ success: true, data });
+  } catch (err) {
+    console.error("❌ registerPesapalIPN error:", err);
+    return res.status(500).json({ success: false, error: (err as Error).message });
   }
 };

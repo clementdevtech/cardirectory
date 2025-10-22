@@ -2,6 +2,8 @@ import { Request, Response } from "express";
 import { supabase } from "../supabaseClient";
 
 export const handlePesaPalWebhook = async (req: Request, res: Response): Promise<Response | void> => {
+
+  console.log('webhook running');
   try {
     const body = req.body as {
       data?: {

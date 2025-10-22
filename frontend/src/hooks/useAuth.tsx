@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState, ReactNode } from "react
 import { User, Session } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "react-toastify";
+import { apiRequest } from "@/utils/apiClient";
 
 const API_BASE_URL = import.meta.env.VITE_BACKEND_URL;
 
@@ -180,17 +181,26 @@ const signIn = async (email: string, password: string) => {
     setUserRole(null);
   };
 
-  const verifyEmailStatus = async (token: string) => {
-    try {
-      const res = await fetch(`${API_BASE_URL}/auth/verify-email`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await res.json();
-      return data.verified || false;
-    } catch {
+  const verifyEmailStatus = async (token: string): Promise<boolean> => {
+  try {
+    const data = await apiRequest("/auth/verify-email", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    // ✅ Auto-toast handled in apiRequest
+    // but we also ensure we return true/false to VerifyEmail.tsx
+    if (data.verified) {
+      return true;
+    } else {
+      // If backend sent an error, ensure it appears in toast
+      if (data.error) console.error("Verification failed:", data.error);
       return false;
     }
-  };
+  } catch (err: any) {
+    console.error("verifyEmailStatus request failed:", err);
+    return false;
+  }
+};
 
   return (
     <AuthContext.Provider
