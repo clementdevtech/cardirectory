@@ -22,7 +22,6 @@ interface SignUpResponse {
 interface AuthContextType {
   user: User | null;
   session: Session | null;
-  userRole: string | null;
   isLoading: boolean;
   signUp: (
     email: string,
@@ -38,7 +37,6 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType>({
   user: null,
   session: null,
-  userRole: null,
   isLoading: true,
   signUp: async () => ({ success: false }),
   signIn: async () => ({ success: false }),
@@ -51,11 +49,10 @@ export const useAuth = (): AuthContextType => useContext(AuthContext);
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
-  const [userRole, setUserRole] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Fetch user role
-  const fetchUserRole = async (): Promise<void> => {
+  // 🔹 Fetch authenticated user from backend
+  const fetchUser = async (): Promise<void> => {
     try {
       const token = localStorage.getItem("auth_token");
       if (!token) return;
@@ -65,39 +62,30 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         credentials: "include",
       });
 
-      if (!res.ok) throw new Error("Failed to fetch role");
-      const data: { user: User; role?: string } = await res.json();
-      setUser(data.user);
-      setUserRole(data.role || "user");
+      if (!res.ok) throw new Error("Failed to fetch user info");
+
+      const data: { user: User } = await res.json();
+      if (data?.user) {
+        setUser(data.user);
+      }
     } catch (err) {
-      console.error("Failed to fetch user role:", err);
-      setUserRole("user");
+      console.error("Failed to fetch user:", err);
+      setUser(null);
     }
   };
 
-  // Initialize Auth
+  // 🔹 Initialize authentication on app load
   useEffect(() => {
     const initializeAuth = async () => {
       const token = localStorage.getItem("auth_token");
 
       if (token) {
-        try {
-          const res = await fetch(`${API_BASE_URL}/auth/me`, {
-            headers: { Authorization: `Bearer ${token}` },
-          });
-          const data: { user?: User; role?: string } = await res.json();
-          if (data?.user) {
-            setUser(data.user);
-            setUserRole(data.role || "user");
-          }
-        } catch (err) {
-          console.warn("Failed to restore session.", (err as Error).message);
-        }
+        await fetchUser();
       } else {
+        // fallback to Supabase session (if used)
         const { data } = await supabase.auth.getSession();
         setSession(data.session);
         setUser(data.session?.user ?? null);
-        if (data.session?.user) await fetchUserRole();
       }
 
       setIsLoading(false);
@@ -123,7 +111,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       const data: { message?: string; error?: string } = await res.json();
       if (!res.ok) return { success: false, error: data.error };
 
-      toast.success(data.message || "Account created! Verify email.");
+      toast.success(data.message || "Account created! Verify your email.");
       return { success: true, message: data.message };
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error";
@@ -156,27 +144,19 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             ? "Invalid request. Please check your input."
             : res.status === 401
             ? "Unauthorized. Incorrect email or password."
-            : res.status === 403
-            ? "Access forbidden. Contact support if this persists."
             : res.status === 404
-            ? "User not found. Please register first."
+            ? "User not found."
             : res.status >= 500
-            ? "Server error. Please try again later."
-            : "Unexpected error occurred.");
+            ? "Server error. Try again later."
+            : "Unexpected error.");
 
         toast.error(errorMessage);
         return { success: false, status: res.status, error: errorMessage };
       }
 
-      if (data.error) {
-        toast.error(data.error);
-        return { success: false, status: res.status, error: data.error };
-      }
-
       if (data.token) localStorage.setItem("auth_token", data.token);
       setUser(data.user ?? null);
       setSession(data.session ?? null);
-      await fetchUserRole();
 
       toast.success("Login successful!");
       return { success: true, status: res.status, message: "Login successful!" };
@@ -190,15 +170,21 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   // ✅ Sign Out
   const signOut = async (): Promise<void> => {
-    await supabase.auth.signOut();
+    try {
+      await supabase.auth.signOut();
+    } catch (err) {
+      console.warn("Supabase sign-out skipped:", err);
+    }
+
     await fetch(`${API_BASE_URL}/auth/logout`, {
       method: "POST",
       credentials: "include",
     });
+
     localStorage.removeItem("auth_token");
     setUser(null);
     setSession(null);
-    setUserRole(null);
+    toast.info("Logged out successfully");
   };
 
   // ✅ Verify Email
@@ -216,7 +202,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   return (
     <AuthContext.Provider
-      value={{ user, session, userRole, isLoading, signUp, signIn, signOut, verifyEmailStatus }}
+      value={{ user, session, isLoading, signUp, signIn, signOut, verifyEmailStatus }}
     >
       {children}
     </AuthContext.Provider>

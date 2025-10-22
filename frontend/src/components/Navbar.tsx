@@ -10,11 +10,13 @@ import logo from "@/assets/logo.png";
 const Navbar = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [authMode, setAuthMode] = useState<"login" | "register">("login");
-  const { user, userRole, signOut } = useAuth();
+  const { user, signOut } = useAuth();
   const navigate = useNavigate();
   const panelRef = useRef<HTMLDivElement>(null);
   const [touchStartX, setTouchStartX] = useState(0);
   const [touchEndX, setTouchEndX] = useState(0);
+
+  const userRole = user.role;
 
   // ✅ Handle Logout
   const handleLogout = async () => {

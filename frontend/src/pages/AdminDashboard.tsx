@@ -80,19 +80,6 @@ const AdminDashboard = () => {
   const [suggestions, setSuggestions] = useState<GeoapifyPlace[]>([]);
   const [isFetching, setIsFetching] = useState(false);
 
-  // ---- Authentication Check ----
-  useEffect(() => {
-    if (!isLoading && (!user || userRole !== "admin")) {
-      navigate("/login");
-    }
-  }, [user, userRole, isLoading, navigate]);
-
-  useEffect(() => {
-    if (user && userRole === "admin") {
-      fetchDashboardData();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, userRole]);
 
   // ---- Fetch Dashboard Stats & Pending Cars ----
   const fetchDashboardData = async () => {
@@ -334,7 +321,6 @@ const AdminDashboard = () => {
 
   // ---- Render ----
   if (isLoading) return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
-  if (!user || userRole !== "admin") return null;
 
   return (
     <div className="min-h-screen bg-gray-50">
