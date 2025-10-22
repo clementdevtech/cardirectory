@@ -4,28 +4,38 @@ import jwt, { JwtPayload } from "jsonwebtoken";
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) throw new Error("JWT_SECRET is not defined in environment variables.");
 
-interface AuthRequest extends Request {
+// ✅ Extend Request safely — do NOT redeclare existing properties like `cookies`
+export interface AuthRequest extends Request {
   user?: string | JwtPayload;
 }
 
-export const verifyAuth = (req: AuthRequest, res: Response, next: NextFunction) => {
+export const verifyAuth = (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): void => {
   try {
+    // ✅ Type-safe cookie + header extraction
     const token =
-      req.cookies?.auth_token ||
-      req.headers.authorization?.replace("Bearer ", "");
+      (req as any).cookies?.auth_token ||
+      (typeof req.headers.authorization === "string"
+        ? req.headers.authorization.replace("Bearer ", "")
+        : null);
 
     if (!token) {
-      return res.status(401).json({ success: false, error: "Unauthorized" });
+      res.status(401).json({ success: false, error: "Unauthorized" });
+      return;
     }
 
-    const decoded = jwt.verify(token, JWT_SECRET); // ✅ JWT_SECRET is now guaranteed to exist
+    const decoded = jwt.verify(token, JWT_SECRET);
     req.user = decoded;
     next();
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Unknown authentication error";
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : "Unknown authentication error";
     console.error("Auth validation failed:", message);
 
-    return res
+    res
       .status(401)
       .json({ success: false, error: "Session expired. Please log in again." });
   }
