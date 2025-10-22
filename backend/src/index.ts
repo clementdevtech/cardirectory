@@ -3,7 +3,6 @@ import dotenv from "dotenv";
 import cors from "cors";
 import bodyParser from "body-parser";
 import paymentRoutes from "./routes/payments";
-import webhookRoutes from "./routes/webhooks";
 import locationsRouter from "./routes/locations";
 import auth from "./routes/auth";
 import emailRoutes from "./routes/emailRoutes";
@@ -34,7 +33,7 @@ app.use(bodyParser.json());
 
 
 app.use("/api/payments", paymentRoutes);
-app.use("/api/webhooks", webhookRoutes);
+app.use("/api/webhooks", paymentRoutes);
 app.use("/api/locations", locationsRouter);
 app.use("/api/auth", auth);
 app.use("/api/email", emailRoutes);

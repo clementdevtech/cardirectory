@@ -3,6 +3,6 @@ import { createPesaPalOrder , handlePesapalIPN, registerPesapalIPN } from "../co
 
 const router = express.Router();
 router.post("/pesapal/create", createPesaPalOrder);
-router.post("/pesapal/ipn", handlePesapalIPN);
+router.post("/pesapal", handlePesapalIPN);
 router.get("/register-ipn", registerPesapalIPN);
 export default router;

@@ -12,7 +12,7 @@ const BASE_URL =
     ? "https://cybqa.pesapal.com/pesapalv3"
     : "https://pay.pesapal.com/v3";
 
-// ✅ Cached token (avoid fetching token repeatedly)
+// ✅ Cached token (avoid repeated requests)
 let cachedToken: string | null = null;
 let tokenExpiry: number | null = null;
 
@@ -20,10 +20,7 @@ let tokenExpiry: number | null = null;
  * STEP 1 — Get Pesapal Access Token (OAuth2)
  */
 async function getPesapalToken(): Promise<string> {
-  // Reuse valid token if available
-  if (cachedToken && tokenExpiry && Date.now() < tokenExpiry) {
-    return cachedToken;
-  }
+  if (cachedToken && tokenExpiry && Date.now() < tokenExpiry) return cachedToken;
 
   const resp = await fetch(`${BASE_URL}/api/Auth/RequestToken`, {
     method: "POST",
@@ -35,14 +32,13 @@ async function getPesapalToken(): Promise<string> {
   });
 
   const data = await resp.json();
-
   if (!resp.ok || !data.token) {
     console.error("❌ Failed to obtain Pesapal token:", data);
     throw new Error("Could not obtain Pesapal token");
   }
 
   cachedToken = data.token;
-  tokenExpiry = Date.now() + 55 * 60 * 1000; // Cache for ~55 minutes
+  tokenExpiry = Date.now() + 55 * 60 * 1000; // cache for ~55 min
   return data.token;
 }
 
@@ -51,12 +47,7 @@ async function getPesapalToken(): Promise<string> {
  */
 export const createPesaPalOrder = async (req: Request, res: Response): Promise<Response> => {
   try {
-    const { user_id, plan, amount, phone } = req.body as {
-      user_id: string;
-      plan: string;
-      amount: number;
-      phone: string;
-    };
+    const { user_id, plan, amount, phone } = req.body;
 
     if (!user_id || !plan || !amount || !phone) {
       return res.status(400).json({ error: "Missing required parameters" });
@@ -65,7 +56,7 @@ export const createPesaPalOrder = async (req: Request, res: Response): Promise<R
     const merchant_reference = `ORDER-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
     const callback_url = process.env.PESAPAL_IPN_URL;
 
-    // Log pending transaction
+    // Save pending payment in DB
     const { error: insertErr } = await supabase.from("payments").insert([
       {
         user_id,
@@ -77,35 +68,27 @@ export const createPesaPalOrder = async (req: Request, res: Response): Promise<R
         merchant_reference,
       },
     ]);
+    if (insertErr) throw insertErr;
 
-    if (insertErr) {
-      console.error("❌ Supabase insert error:", insertErr);
-      throw insertErr;
-    }
-
-    // Get token
     const token = await getPesapalToken();
 
-    // Build order payload
     const order = {
       id: merchant_reference,
       currency: "KES",
       amount,
-      description: `AutoKenya ${plan} plan subscription`,
-      callback_url, // IPN webhook
-      notification_id: process.env.PESAPAL_NOTIFICATION_ID, // from RegisterIPN
+      description: `AutoKenya ${plan} Plan Subscription`,
+      callback_url,
+      notification_id: process.env.PESAPAL_NOTIFICATION_ID,
       billing_address: {
         phone_number: phone,
-        email_address: "",
         country_code: "KE",
         first_name: "User",
-        middle_name: "",
         last_name: "Subscriber",
+        email_address: "",
         city: "Nairobi",
       },
     };
 
-    // Create order
     const resp = await fetch(`${BASE_URL}/api/Transactions/SubmitOrderRequest`, {
       method: "POST",
       headers: {
@@ -116,7 +99,6 @@ export const createPesaPalOrder = async (req: Request, res: Response): Promise<R
     });
 
     const data = await resp.json();
-
     if (!resp.ok || !data.redirect_url) {
       console.error("❌ Pesapal order error:", data);
       throw new Error(data.error || "Failed to create Pesapal order");
@@ -135,76 +117,95 @@ export const createPesaPalOrder = async (req: Request, res: Response): Promise<R
 
 /**
  * STEP 3 — Handle Pesapal IPN (Webhook)
+ * For ipn_notification_type = GET
  */
-export const handlePesapalIPN = async (req: Request, res: Response) => {
+export const handlePesapalIPN = async (req: Request, res: Response): Promise<Response> => {
   try {
-    const { OrderTrackingId, OrderMerchantReference, PaymentStatusDescription } = req.body;
+    console.log("📬 Incoming Pesapal GET IPN:", req.query);
 
-    if (!OrderMerchantReference) {
-      return res.status(400).json({ error: "Missing merchant reference" });
+    const { OrderMerchantReference, OrderTrackingId } = req.query;
+
+    if (!OrderMerchantReference || !OrderTrackingId) {
+      return res.status(400).json({ error: "Missing query parameters" });
     }
 
-    console.log("📬 Pesapal IPN received:", req.body);
+    // ✅ Step 1: Get access token
+    const token = await getPesapalToken();
 
-    // Update payment status in Supabase
-    const { data: paymentData, error: updateError } = await supabase
+    // ✅ Step 2: Check transaction status from Pesapal
+    const statusResp = await fetch(
+      `${BASE_URL}/api/Transactions/GetTransactionStatus?orderTrackingId=${OrderTrackingId}`,
+      {
+        headers: { Authorization: `Bearer ${token}` },
+      }
+    );
+
+    const statusData = await statusResp.json();
+    console.log("🔍 Transaction status:", statusData);
+
+    const paymentStatus = statusData.payment_status_description || statusData.status;
+    const merchant_reference = OrderMerchantReference as string;
+
+    // ✅ Step 3: Fetch payment in your DB
+    const { data: payment, error: fetchError } = await supabase
       .from("payments")
-      .update({ status: PaymentStatusDescription })
-      .eq("merchant_reference", OrderMerchantReference)
-      .select("user_id, plan_name, status")
+      .select("user_id, plan_name, amount, status")
+      .eq("merchant_reference", merchant_reference)
       .single();
 
-    if (updateError) throw updateError;
-    if (!paymentData) throw new Error("Payment record not found");
-
-    // Check if payment was successful
-    const successfulStatuses = ["COMPLETED", "SUCCESS", "PAID", "Payment Completed"];
-    if (successfulStatuses.includes(PaymentStatusDescription.toUpperCase())) {
-      const { user_id, plan_name } = paymentData;
-
-      // Update user role → dealer
-      const { error: roleErr } = await supabase
-        .from("users")
-        .update({ role: "dealer" })
-        .eq("id", user_id);
-
-      if (roleErr) throw roleErr;
-
-      // Update or insert user_roles entry
-      const { data: existingRole } = await supabase
-        .from("user_roles")
-        .select("id")
-        .eq("user_id", user_id)
-        .maybeSingle();
-
-      if (existingRole) {
-        await supabase.from("user_roles").update({ role: "dealer" }).eq("user_id", user_id);
-      } else {
-        await supabase.from("user_roles").insert([{ user_id, role: "dealer" }]);
-      }
-
-      console.log(`✅ User ${user_id} upgraded to dealer after ${plan_name} payment.`);
-    } else {
-      console.log(`⚠️ Payment not successful yet: ${PaymentStatusDescription}`);
+    if (fetchError || !payment) {
+      return res.status(404).json({ error: "Payment not found" });
     }
 
+    // ✅ Step 4: If payment succeeded
+    const successStates = ["COMPLETED", "SUCCESS", "PAID"];
+    if (successStates.includes(paymentStatus.toUpperCase()) && payment.status !== "success") {
+      // Update payment status
+      await supabase
+        .from("payments")
+        .update({ status: "success" })
+        .eq("merchant_reference", merchant_reference);
+
+      // Create or update subscription
+      const endDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+
+      await supabase.from("subscriptions").upsert({
+        user_id: payment.user_id,
+        plan_name: payment.plan_name,
+        price: payment.amount,
+        listings_allowed: 50,
+        listings_used: 0,
+        start_date: new Date().toISOString(),
+        end_date: endDate,
+        status: "active",
+      });
+
+      // Promote user to dealer
+      await supabase.from("users").update({ role: "dealer" }).eq("id", payment.user_id);
+      await supabase
+        .from("user_roles")
+        .upsert([{ user_id: payment.user_id, role: "dealer" }], { onConflict: "user_id" });
+
+      console.log(`✅ User ${payment.user_id} upgraded to dealer.`);
+    }
+
+    // ✅ Step 5: Respond OK to Pesapal
     return res.status(200).json({ received: true });
-  } catch (err) {
-    console.error("❌ IPN handling error:", err);
-    return res.status(500).json({ error: (err as Error).message });
+  } catch (err: any) {
+    console.error("❌ Pesapal IPN Error:", err);
+    return res.status(500).json({ error: err.message });
   }
 };
 
 /**
- * STEP 4 — Register IPN (Live)
- * Run once to get your PESAPAL_NOTIFICATION_ID
+ * STEP 4 — Register IPN (Run once to get notification_id)
  */
 export const registerPesapalIPN = async (req: Request, res: Response) => {
   try {
     const token = await getPesapalToken();
 
     const payload = {
-      url: process.env.PESAPAL_IPN_URL, // must be live HTTPS webhook
+      url: process.env.PESAPAL_IPN_URL, // must be live HTTPS
       ipn_notification_type: "GET",
     };
 
@@ -218,7 +219,6 @@ export const registerPesapalIPN = async (req: Request, res: Response) => {
     });
 
     const data = await response.json();
-
     if (!response.ok) {
       console.error("❌ IPN registration failed:", data);
       return res.status(400).json({ success: false, error: data });
