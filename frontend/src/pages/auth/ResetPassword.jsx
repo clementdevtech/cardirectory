@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { supabase } from "@/integrations/supabase/client";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import {
   Eye,
   EyeOff,
@@ -10,9 +9,13 @@ import {
   Lock,
 } from "lucide-react";
 import { toast } from "react-toastify";
+import axios from "axios";
+
+const API_BASE_URL = import.meta.env.VITE_BACKEND_URL;
 
 const ResetPassword = () => {
   const navigate = useNavigate();
+  const location = useLocation();
 
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -21,11 +24,13 @@ const ResetPassword = () => {
   const [passwordError, setPasswordError] = useState("");
   const [passwordValid, setPasswordValid] = useState(false);
 
-  // ✅ Password validation (no TypeScript type)
+  const token = new URLSearchParams(location.search).get("token");
+
+  // ✅ Password validation
   const validatePassword = (value) =>
     /^(?=.*[A-Za-z])(?=.*\d)(?=.*[@$!%*?&]).{8,}$/.test(value);
 
-  // ✅ Live password strength feedback
+  // ✅ Live validation feedback
   useEffect(() => {
     if (!password) {
       setPasswordError("");
@@ -57,16 +62,25 @@ const ResetPassword = () => {
       return;
     }
 
+    if (!token) {
+      toast.error("Invalid or missing reset token.");
+      return;
+    }
+
     try {
       setIsLoading(true);
-      const { error } = await supabase.auth.updateUser({ password });
+      const response = await axios.post(`${API_BASE_URL}/auth/reset-password`, {
+        token,
+        newPassword: password,
+      });
+
       setIsLoading(false);
 
-      if (error) {
-        toast.error(error.message || "Password reset failed.");
-      } else {
+      if (response.data.success) {
         toast.success("Password updated successfully!");
         navigate("/login");
+      } else {
+        toast.error(response.data.error || "Password reset failed.");
       }
     } catch (err) {
       console.error("ResetPassword error:", err);
@@ -91,7 +105,6 @@ const ResetPassword = () => {
         </div>
 
         <form onSubmit={handlePasswordReset} className="space-y-6">
-          {/* New Password */}
           <div className="relative">
             <label className="block text-gray-600 font-medium mb-1">
               New Password
@@ -109,8 +122,8 @@ const ResetPassword = () => {
                   : "focus:ring-blue-200"
               }`}
             />
-            {password && (
-              passwordValid ? (
+            {password &&
+              (passwordValid ? (
                 <CheckCircle2
                   className="absolute right-12 top-10 text-green-500 transition-opacity"
                   size={18}
@@ -120,8 +133,7 @@ const ResetPassword = () => {
                   className="absolute right-12 top-10 text-red-500 transition-opacity"
                   size={18}
                 />
-              )
-            )}
+              ))}
             <button
               type="button"
               onClick={() => setShowPasswords(!showPasswords)}
@@ -135,7 +147,6 @@ const ResetPassword = () => {
             )}
           </div>
 
-          {/* Confirm Password */}
           <div className="relative">
             <label className="block text-gray-600 font-medium mb-1">
               Confirm Password
@@ -149,7 +160,6 @@ const ResetPassword = () => {
             />
           </div>
 
-          {/* Toggle Visibility */}
           <div className="flex items-center justify-end text-sm text-gray-600">
             <button
               type="button"
@@ -168,7 +178,6 @@ const ResetPassword = () => {
             </button>
           </div>
 
-          {/* Submit */}
           <button
             type="submit"
             disabled={isLoading}

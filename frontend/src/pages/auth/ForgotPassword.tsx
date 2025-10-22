@@ -1,7 +1,10 @@
 import React, { useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import axios from "axios";
 import { toast } from "react-toastify";
 import { Loader2, MailCheck, MailWarning } from "lucide-react";
+import { Link } from "react-router-dom";
+
+const API_BASE_URL = import.meta.env.VITE_BACKEND_URL; // Example: http://localhost:5000/api
 
 const ForgotPassword = () => {
   const [email, setEmail] = useState("");
@@ -9,10 +12,10 @@ const ForgotPassword = () => {
   const [emailError, setEmailError] = useState("");
   const [isSent, setIsSent] = useState(false);
 
-  // ✅ Simple email validation (no types)
-  const validateEmail = (email) =>
-    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  // ✅ Simple email validation
+  const validateEmail = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 
+  // ✅ Handle password reset
   const handleReset = async (e) => {
     e.preventDefault();
     setEmailError("");
@@ -24,32 +27,36 @@ const ForgotPassword = () => {
 
     try {
       setIsLoading(true);
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}/reset-password`,
-      });
-      setIsLoading(false);
 
-      if (error) {
-        toast.error(error.message || "Something went wrong.");
-      } else {
+      // 🔥 Call your backend route (not Supabase)
+      const res = await axios.post(`${API_BASE_URL}/auth/forgot-password`, {
+        email,
+      });
+
+      if (res.data.success) {
         setIsSent(true);
-        toast.success("Password reset link sent! Check your email.");
+        toast.success("Password reset email sent! Check your inbox.");
+      } else {
+        toast.error(res.data.error || "Failed to send reset link.");
       }
     } catch (err) {
-      console.error("Reset error:", err);
-      toast.error("Unexpected error. Try again later.");
+      console.error("Forgot password error:", err);
+      toast.error(
+        err.response?.data?.error || "Unexpected error. Please try again later."
+      );
+    } finally {
       setIsLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-gray-100 p-4">
-      <div className="bg-white shadow-2xl rounded-2xl w-full max-w-md p-8 transition-all duration-300 hover:shadow-xl">
-        <h2 className="text-2xl font-extrabold text-center text-gray-800 mb-2">
-          Forgot Password?
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-900 via-blue-900 to-purple-900 px-4 py-10">
+      <div className="bg-white/10 backdrop-blur-md border border-white/20 shadow-2xl rounded-2xl w-full max-w-md p-8">
+        <h2 className="text-3xl font-bold text-center text-white mb-2">
+          Forgot Password
         </h2>
-        <p className="text-center text-gray-600 mb-6 text-sm">
-          Enter your email and we’ll send you a link to reset your password.
+        <p className="text-center text-gray-300 mb-6 text-sm">
+          Enter your email and we’ll send you a reset link.
         </p>
 
         <form onSubmit={handleReset} className="space-y-5">
@@ -59,10 +66,10 @@ const ForgotPassword = () => {
               placeholder="Enter your email address"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className={`w-full p-3 border rounded-xl outline-none focus:ring-2 transition-all ${
+              className={`w-full p-3 bg-white/20 text-white placeholder-gray-300 border rounded-xl outline-none focus:ring-2 transition-all ${
                 emailError
-                  ? "border-red-500 ring-red-200"
-                  : "focus:ring-blue-400"
+                  ? "border-red-400 focus:ring-red-300"
+                  : "border-white/30 focus:ring-purple-400"
               }`}
               disabled={isSent}
               required
@@ -70,26 +77,26 @@ const ForgotPassword = () => {
             {isSent ? (
               <MailCheck
                 size={20}
-                className="absolute right-3 top-3 text-green-500"
+                className="absolute right-3 top-3 text-green-400"
               />
             ) : emailError ? (
               <MailWarning
                 size={20}
-                className="absolute right-3 top-3 text-red-500"
+                className="absolute right-3 top-3 text-red-400"
               />
             ) : null}
             {emailError && (
-              <p className="text-red-500 text-sm mt-1">{emailError}</p>
+              <p className="text-red-400 text-sm mt-1">{emailError}</p>
             )}
           </div>
 
           <button
             type="submit"
             disabled={isLoading || isSent}
-            className={`w-full py-3 rounded-xl font-semibold text-white transition ${
+            className={`w-full py-3 rounded-xl font-semibold text-white transition-all duration-200 shadow-md ${
               isLoading || isSent
-                ? "bg-blue-400 cursor-not-allowed"
-                : "bg-blue-600 hover:bg-blue-700 shadow-md hover:shadow-blue-200"
+                ? "bg-purple-400 cursor-not-allowed"
+                : "bg-gradient-to-r from-purple-600 to-blue-600 hover:opacity-90 hover:shadow-lg"
             }`}
           >
             {isLoading ? (
@@ -102,11 +109,23 @@ const ForgotPassword = () => {
           </button>
 
           {isSent && (
-            <p className="text-sm text-center text-gray-600">
+            <p className="text-sm text-center text-gray-300">
               Didn’t receive it? Check your spam folder or try again later.
             </p>
           )}
         </form>
+
+        <div className="text-center mt-6">
+          <p className="text-gray-300 text-sm">
+            Remembered your password?{" "}
+            <Link
+              to="/login"
+              className="text-purple-300 hover:text-white underline transition-all"
+            >
+              Back to Login
+            </Link>
+          </p>
+        </div>
       </div>
     </div>
   );

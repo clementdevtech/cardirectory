@@ -208,6 +208,31 @@ export const forgotPassword = async (req: Request, res: Response): Promise<Respo
   }
 };
 
+
+export const resetPassword = async (req: Request, res: Response): Promise<Response> => {
+  try {
+    const { token, newPassword } = req.body;
+
+    if (!token || !newPassword) {
+      return res.status(400).json({ success: false, error: "Missing token or password" });
+    }
+
+    const decoded = jwt.verify(token, process.env.JWT_SECRET as string) as JwtPayload;
+    if (!decoded?.email) {
+      return res.status(400).json({ success: false, error: "Invalid token" });
+    }
+
+    const hashed = await bcrypt.hash(newPassword, 10);
+    await query("UPDATE users SET password = $1 WHERE email = $2", [hashed, decoded.email]);
+
+    return res.json({ success: true, message: "Password reset successful" });
+  } catch (err: any) {
+    console.error("❌ resetPassword error:", err.message);
+    return res.status(400).json({ success: false, error: "Invalid or expired token" });
+  }
+};
+
+
 /* ===========================
    ✅ VERIFY EMAIL STATUS (GET)
 =========================== */
