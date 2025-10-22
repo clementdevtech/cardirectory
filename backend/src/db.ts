@@ -39,10 +39,6 @@ export async function query<T extends QueryResultRow = any>(
     const res = await client.query<T>(text, params);
     const duration = Date.now() - start;
 
-    // Optional performance log in dev mode
-    if (process.env.NODE_ENV !== "production" && duration > 200) {
-      console.log(`⚡ Slow Query (${duration}ms):`, text, params || []);
-    }
 
     return res;
   } catch (err: any) {
@@ -61,7 +57,7 @@ export async function query<T extends QueryResultRow = any>(
 (async () => {
   try {
     const res = await pool.query("SELECT NOW()");
-    console.log("✅ Database connected:", res.rows[0].now);
+    
   } catch (err: any) {
     console.error("❌ Failed to connect to DB:", err.message);
   }
