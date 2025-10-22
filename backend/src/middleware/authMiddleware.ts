@@ -4,23 +4,25 @@ import jwt, { JwtPayload } from "jsonwebtoken";
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) throw new Error("JWT_SECRET is not defined in environment variables.");
 
-// ✅ Extend Request safely — do NOT redeclare existing properties like `cookies`
 export interface AuthRequest extends Request {
   user?: string | JwtPayload;
 }
 
+// ✅ Use type narrowing to safely access headers and cookies
 export const verifyAuth = (
   req: AuthRequest,
   res: Response,
   next: NextFunction
 ): void => {
   try {
-    // ✅ Type-safe cookie + header extraction
+    const authHeader =
+      typeof req.headers?.authorization === "string"
+        ? req.headers.authorization
+        : "";
+
     const token =
-      (req as any).cookies?.auth_token ||
-      (typeof req.headers.authorization === "string"
-        ? req.headers.authorization.replace("Bearer ", "")
-        : null);
+      (req as any)?.cookies?.auth_token ||
+      (authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null);
 
     if (!token) {
       res.status(401).json({ success: false, error: "Unauthorized" });
