@@ -3,23 +3,27 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
+// ✅ Ensure DATABASE_URL exists
 const connectionString = process.env.DATABASE_URL;
 if (!connectionString) throw new Error("❌ DATABASE_URL not set");
 
+// ✅ Create connection pool with optimized settings for Supabase
 export const pool = new Pool({
   connectionString,
-  ssl: { rejectUnauthorized: false, require: true },
-  max: parseInt(process.env.DB_POOL_MAX || "10", 10),
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 20000, // 20s for Supabase SSL handshake
+  ssl: { rejectUnauthorized: false }, // required for Supabase
+  keepAlive: true, // keeps TCP connection open between queries
+  max: parseInt(process.env.DB_POOL_MAX || "15", 10), // concurrent clients
+  idleTimeoutMillis: 60000, // 1 minute before releasing idle client
+  connectionTimeoutMillis: 10000, // wait max 10s to connect
 });
 
-process.on("SIGINT", async () => {
-  console.log("🧹 Closing DB pool...");
-  await pool.end();
-  process.exit(0);
-});
+// ✅ Pool event listeners
+pool.on("connect", () => console.log("✅ PostgreSQL connection established"));
+pool.on("error", (err) =>
+  console.error("❌ PostgreSQL pool error:", err.message)
+);
 
+// ✅ Safe query helper
 export async function query<T extends QueryResultRow = any>(
   text: string,
   params?: any[]
@@ -30,23 +34,53 @@ export async function query<T extends QueryResultRow = any>(
   try {
     const res = await client.query<T>(text, params);
     const duration = Date.now() - start;
-    //console.log("✅ Query OK:", { text, duration: `${duration}ms` });
+    // console.log(`✅ Query executed in ${duration}ms`);
     return res;
   } catch (err: any) {
-    console.error("❌ SQL Error:", { query: text, params, error: err.message });
+    console.error("❌ SQL Error:", {
+      query: text,
+      params,
+      error: err.message,
+    });
     throw err;
   } finally {
     client.release();
   }
 }
 
-// ✅ Test DB connection on startup
-(async () => {
-  try {
-    await pool.query("SELECT NOW()");
-    console.log("✅ Connected to Supabase DB successfully");
-  } catch (err: any) {
-    console.error("❌ Failed to connect to DB:", err.message);
+// ✅ Graceful shutdown for Render
+process.on("SIGINT", async () => {
+  console.log("🧹 Closing DB pool...");
+  await pool.end();
+  process.exit(0);
+});
+
+process.on("SIGTERM", async () => {
+  console.log("🧹 Render shutting down gracefully...");
+  await pool.end();
+  process.exit(0);
+});
+
+// ✅ Connection verification with retry
+(async function verifyConnection(retries = 3) {
+  while (retries) {
+    try {
+      const { rows } = await pool.query("SELECT NOW()");
+      console.log("✅ Connected to Supabase DB successfully:", rows[0].now);
+      break;
+    } catch (err: any) {
+      retries -= 1;
+      console.error(
+        `❌ DB connection failed (${3 - retries}/3):`,
+        err.message
+      );
+      if (retries === 0) {
+        console.error("❌ Could not connect to Supabase DB after retries.");
+      } else {
+        console.log("⏳ Retrying connection in 3s...");
+        await new Promise((res) => setTimeout(res, 3000));
+      }
+    }
   }
 })();
 
