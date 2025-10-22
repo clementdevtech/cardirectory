@@ -8,7 +8,23 @@ import dotenv from "dotenv";
 dotenv.config();
 
 const JWT_SECRET = process.env.JWT_SECRET as string;
-const FRONTEND_URL = process.env.FRONTEND_URL
+const FRONTEND_URL = process.env.FRONTEND_URL;
+
+// ✅ Helper: send clean and consistent JSON responses
+const sendResponse = (
+  res: Response,
+  status: number,
+  data: Record<string, any>
+): Response => res.status(status).json({ success: status < 400, ...data });
+
+// ✅ Helper: timeout wrapper to prevent DB hangs
+const withTimeout = <T>(promise: Promise<T>, ms = 7000): Promise<T> =>
+  Promise.race([
+    promise,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("Database request timed out")), ms)
+    ),
+  ]);
 
 export const sendVerificationLink = async (
   email: string,
@@ -46,45 +62,75 @@ export const registerUser = async (req: Request, res: Response): Promise<Respons
       phone?: string;
     };
 
+    // 1️⃣ Validate input
     if (!email || !password || !fullName) {
-      return res.status(400).json({ success: false, error: "All fields are required." });
+      return sendResponse(res, 400, { error: "All fields are required." });
     }
 
-    const existingUser = await query(`SELECT id FROM users WHERE email = $1`, [email]);
+    // 2️⃣ Check if email already exists
+    const existingUser = await withTimeout(
+      query(`SELECT id FROM users WHERE email = $1 LIMIT 1`, [email]),
+      5000
+    );
+
     if (existingUser.rows.length > 0) {
-      return res.status(400).json({
-        success: false,
+      return sendResponse(res, 400, {
         error: "Email already exists. Please log in or use another email.",
       });
     }
 
+    // 3️⃣ Hash password securely
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // 📤 Use reusable verification logic
-    const verificationToken = await sendVerificationLink(email);
+    // 4️⃣ Generate and send verification token
+    let verificationToken: string | null = null;
+    try {
+      verificationToken = await sendVerificationLink(email);
+    } catch (emailErr: any) {
+      console.error("📧 Failed to send verification email:", emailErr.message);
+      return sendResponse(res, 500, {
+        error: "Failed to send verification email. Please try again later.",
+      });
+    }
 
+    // 5️⃣ Insert user into DB
     const insertSQL = `
-      INSERT INTO users (full_name, email, password, role, phone, verification_token, is_verified, created_at)
+      INSERT INTO users (
+        full_name, email, password, role, phone, verification_token, is_verified, created_at
+      )
       VALUES ($1, $2, $3, 'user', $4, $5, false, now())
       RETURNING id, full_name, email, role, created_at
     `;
-    const result = await query(insertSQL, [fullName, email, hashedPassword, phone || null, verificationToken]);
 
-    return res.status(201).json({
-      success: true,
+    const result = await withTimeout(
+      query(insertSQL, [fullName, email, hashedPassword, phone || null, verificationToken]),
+      5000
+    );
+
+    const newUser = result.rows[0];
+
+    // 6️⃣ Respond success
+    return sendResponse(res, 201, {
       message:
         "Account created successfully! Please check your email to verify your account before logging in.",
-      user: result.rows[0],
+      user: newUser,
     });
   } catch (err: any) {
-    console.error("❌ registerUser unexpected error:", err);
+    console.error("❌ registerUser unexpected error:", err.message || err);
+
+    // Handle unique violation (PostgreSQL code 23505)
     if (err.code === "23505") {
-      return res.status(400).json({
-        success: false,
+      return sendResponse(res, 400, {
         error: "This email is already registered. Try logging in instead.",
       });
     }
-    return res.status(500).json({ success: false, error: "Internal server error." });
+
+    const message =
+      err.message === "Database request timed out"
+        ? "Server timeout. Please try again."
+        : "Internal server error.";
+
+    return sendResponse(res, 500, { error: message });
   }
 };
 
@@ -94,66 +140,71 @@ export const loginUser = async (req: Request, res: Response): Promise<Response> 
     const { email, password } = req.body as { email: string; password: string };
 
     if (!email || !password) {
-      return res.status(400).json({ success: false, error: "Email and password are required." });
+      return sendResponse(res, 400, { error: "Email and password are required." });
     }
 
-    // 1️⃣ Get user from database
+    // 1️⃣ Get user from DB — fast + safe
     const sql = `
       SELECT id, full_name, email, password, role, created_at, is_verified
       FROM users
       WHERE email = $1
       LIMIT 1
     `;
-    const result = await query(sql, [email]);
+    const result = await withTimeout(query(sql, [email]), 5000);
+    const user = result.rows?.[0];
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ success: false, error: "User not found." });
+    if (!user) {
+      return sendResponse(res, 404, { error: "User not found. Please register first." });
     }
 
-    const user = result.rows[0];
-
-    // 2️⃣ Check password first
+    // 2️⃣ Verify password
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
-      return res.status(401).json({ success: false, error: "Invalid credentials." });
+      return sendResponse(res, 401, { error: "Incorrect email or password." });
     }
 
-    // 3️⃣ If email not verified — generate + save new token
+    // 3️⃣ If email not verified, re-send token immediately
     if (!user.is_verified) {
-      const verificationToken = await sendVerificationLink(email);
+      try {
+        const verificationToken = await sendVerificationLink(email);
+        await withTimeout(
+          query(
+            `UPDATE users SET verification_token = $1, updated_at = now() WHERE email = $2`,
+            [verificationToken, email]
+          ),
+          4000
+        );
 
-      // 🧩 Store token in the database
-      await query(
-        `UPDATE users SET verification_token = $1, updated_at = now() WHERE email = $2`,
-        [verificationToken, email]
-      );
-
-      return res.status(403).json({
-        success: false,
-        error:
-          "Your email address is not verified. A new verification link has been sent to your inbox.",
-      });
+        return sendResponse(res, 403, {
+          error:
+            "Your email address is not verified. A new verification link has been sent to your inbox.",
+        });
+      } catch (emailErr: any) {
+        console.error("📧 Failed to send verification email:", emailErr);
+        return sendResponse(res, 500, {
+          error: "Failed to send verification email. Please try again later.",
+        });
+      }
     }
 
-    // 4️⃣ Create JWT token for successful login
+    // 4️⃣ Generate a fast, secure JWT token
     const token = jwt.sign(
       { id: user.id, email: user.email, role: user.role },
       JWT_SECRET as string,
       { expiresIn: "7d" }
     );
 
-    // 5️⃣ Set secure cookie
+    // 5️⃣ Set secure cookie for persistent session
     res.cookie("auth_token", token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "strict",
-      maxAge: 7 * 24 * 60 * 60 * 1000,
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     });
 
-    // 6️⃣ Respond success
-    return res.status(200).json({
-      success: true,
-      message: "Login successful",
+    // 6️⃣ Send clean success response — minimal data for frontend
+    return sendResponse(res, 200, {
+      message: "Login successful.",
       user: {
         id: user.id,
         full_name: user.full_name,
@@ -162,12 +213,15 @@ export const loginUser = async (req: Request, res: Response): Promise<Response> 
       },
       token,
     });
-  } catch (err) {
-    console.error("❌ loginUser unexpected error:", err);
-    return res.status(500).json({ success: false, error: "Internal server error." });
+  } catch (err: any) {
+    console.error("❌ loginUser unexpected error:", err.message || err);
+    const message =
+      err.message === "Database request timed out"
+        ? "Server timeout. Please try again."
+        : "Internal server error.";
+    return sendResponse(res, 500, { error: message });
   }
 };
-
 
 
 
