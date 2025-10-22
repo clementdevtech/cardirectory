@@ -16,7 +16,7 @@ const Navbar = () => {
   const [touchStartX, setTouchStartX] = useState(0);
   const [touchEndX, setTouchEndX] = useState(0);
 
-  const userRole = user.role;
+  const userRole = user?.role;
 
   // ✅ Handle Logout
   const handleLogout = async () => {
