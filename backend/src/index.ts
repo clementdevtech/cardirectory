@@ -5,8 +5,7 @@ import bodyParser from "body-parser";
 import paymentRoutes from "./routes/payments";
 import locationsRouter from "./routes/locations";
 import auth from "./routes/auth";
-import emailRoutes from "./routes/emailRoutes";
-
+import emailRoutes from "./routes/emailRoutes";import cookieParser from "cookie-parser";
 
 
 dotenv.config();
@@ -30,6 +29,7 @@ app.use(
 );
 
 app.use(bodyParser.json());
+app.use(cookieParser());
 
 
 app.use("/api/payments", paymentRoutes);
