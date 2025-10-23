@@ -22,7 +22,7 @@ const Checkout: React.FC = () => {
   const [phone, setPhone] = useState("");
   const [loading, setLoading] = useState(false);
   const { user } = useAuth();
-  console.log(user);
+  //console.log(user);
 
   // 💰 Plan pricing
   const amount =

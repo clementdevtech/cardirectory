@@ -9,9 +9,9 @@ interface ProtectedRouteProps {
 const ProtectedRoute = ({ children }: ProtectedRouteProps) => {
   const { user, isLoading } = useAuth();
 
-  console.log("🔒 ProtectedRoute check:", { user });
-  console.log("User loaded:", user);
-  console.log("Loading status:", isLoading);
+  //console.log("🔒 ProtectedRoute check:", { user });
+  //console.log("User loaded:", user);
+  //console.log("Loading status:", isLoading);
 
   // ⏳ Wait for auth check before rendering or redirecting
   if (isLoading || user === undefined) {
@@ -24,7 +24,7 @@ const ProtectedRoute = ({ children }: ProtectedRouteProps) => {
 
   // ❌ Redirect if there's absolutely no user
   if (!user) {
-    console.log("🚫 No user found — redirecting to login");
+    //console.log("🚫 No user found — redirecting to login");
     return <Navigate to="/login" replace />;
   }
 

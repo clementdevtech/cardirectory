@@ -33,6 +33,9 @@ import Register from "./pages/auth/Register";
 import ForgotPassword from "./pages/auth/ForgotPassword";
 import ResetPassword from "./pages/auth/ResetPassword";
 import VerifyEmail from "./pages/auth/VerifyEmail";
+import PaymentStatus from "@/pages/PaymentStatus";
+
+
 
 // 🧭 Dashboards
 import AdminDashboard from "./pages/AdminDashboard";
@@ -53,6 +56,7 @@ const router = createBrowserRouter(
       <Route path="/dealers" element={<Dealers />} />
       <Route path="/pricing" element={<Pricing />} />
       <Route path="/contact" element={<Contact />} />
+      <Route path="/payment-status" element={<PaymentStatus />} />
 
       {/* 🔐 Authentication */}
       <Route path="/login" element={<Login />} />
