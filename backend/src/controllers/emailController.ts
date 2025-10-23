@@ -8,8 +8,8 @@ dotenv.config();
 const FRONTEND_URL = process.env.FRONTEND_URL;
 const EMAIL_USER = process.env.EMAIL_USER;
 const EMAIL_PASS = process.env.EMAIL_PASS;
-const BRAND_LOGO = process.env.BRAND_LOGO || "https://yourdomain.com/logo.png";
-const BRAND_NAME = process.env.BRAND_NAME || "CarDirectory Kenya";
+const BRAND_LOGO = process.env.BRAND_LOGO;
+const BRAND_NAME = process.env.BRAND_NAME || "CarDirectory";
 const BRAND_COLOR = "#533737ff";
 
 console.log("Email User:", EMAIL_USER ? "✅ Loaded" : "❌ Missing");
@@ -133,9 +133,9 @@ const generateEmailTemplate = (
     </div>
     <div class="footer">
       <div class="social-icons">
-        <a href="https://facebook.com" target="_blank"><img src="https://cdn-icons-png.flaticon.com/512/733/733547.png" alt="Facebook"/></a>
-        <a href="https://twitter.com" target="_blank"><img src="https://cdn-icons-png.flaticon.com/512/733/733579.png" alt="Twitter"/></a>
-        <a href="https://linkedin.com" target="_blank"><img src="https://cdn-icons-png.flaticon.com/512/733/733561.png" alt="LinkedIn"/></a>
+        <a href="https://www.facebook.com/profile.php?id=61582717470790" target="_blank"><img src="https://cdn-icons-png.flaticon.com/512/733/733547.png" alt="Facebook"/></a>
+        <a href="https://x.com/cardirectory1?t=D5VKSzwZdroYZcZ77sdaUg&s=09" target="_blank"><img src="https://cdn-icons-png.flaticon.com/512/733/733579.png" alt="Twitter"/></a>
+        <a href="https://www.instagram.com/car.directory?igsh=MTYycmJnaWtiOTh1ZQ==" target="_blank"><img src="https://cdn-icons-png.flaticon.com/512/733/733561.png" alt="LinkedIn"/></a>
       </div>
       <p>&copy; ${new Date().getFullYear()} ${BRAND_NAME}. All rights reserved.</p>
     </div>
