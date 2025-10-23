@@ -7,21 +7,19 @@ dotenv.config();
 const connectionString = process.env.DATABASE_URL;
 if (!connectionString) throw new Error("❌ DATABASE_URL not set");
 
-// ✅ Create connection pool with optimized settings for Supabase
+// ✅ Create connection pool optimized for Supabase + Render
 export const pool = new Pool({
   connectionString,
   ssl: { rejectUnauthorized: false }, // required for Supabase
-  keepAlive: true, // keeps TCP connection open between queries
-  max: parseInt(process.env.DB_POOL_MAX || "15", 10), // concurrent clients
-  idleTimeoutMillis: 60000, // 1 minute before releasing idle client
-  connectionTimeoutMillis: 10000, // wait max 10s to connect
+  max: parseInt(process.env.DB_POOL_MAX || "5", 10), // PgBouncer safe limit
+  idleTimeoutMillis: 30000, // close idle clients after 30s
+  connectionTimeoutMillis: 20000, // wait max 20s for connection
+  allowExitOnIdle: true, // ✅ important for Render + PgBouncer
 });
 
 // ✅ Pool event listeners
 pool.on("connect", () => console.log("✅ PostgreSQL connection established"));
-pool.on("error", (err) =>
-  console.error("❌ PostgreSQL pool error:", err.message)
-);
+pool.on("error", (err) => console.error("❌ PostgreSQL pool error:", err.message));
 
 // ✅ Safe query helper
 export async function query<T extends QueryResultRow = any>(
@@ -70,10 +68,7 @@ process.on("SIGTERM", async () => {
       break;
     } catch (err: any) {
       retries -= 1;
-      console.error(
-        `❌ DB connection failed (${3 - retries}/3):`,
-        err.message
-      );
+      console.error(`❌ DB connection failed (${3 - retries}/3):`, err.message);
       if (retries === 0) {
         console.error("❌ Could not connect to Supabase DB after retries.");
       } else {
