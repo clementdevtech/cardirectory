@@ -2,16 +2,18 @@ import express from "express";
 import dotenv from "dotenv";
 import cors from "cors";
 import bodyParser from "body-parser";
+import cookieParser from "cookie-parser";
+
 import paymentRoutes from "./routes/payments";
 import locationsRouter from "./routes/locations";
 import auth from "./routes/auth";
-import emailRoutes from "./routes/emailRoutes";import cookieParser from "cookie-parser";
-
+import emailRoutes from "./routes/emailRoutes";
 
 dotenv.config();
+
 const app = express();
 
-//  Allowed frontend origins
+// ✅ Allowed frontend origins
 const allowedOrigins = [
   "http://localhost:8080",
   "http://192.168.100.25:8080",
@@ -19,7 +21,6 @@ const allowedOrigins = [
   "https://cardirectory.co.ke",
   "https://www.cardirectory.co.ke",
 ];
-
 
 app.use(
   cors({
@@ -31,15 +32,26 @@ app.use(
 app.use(bodyParser.json());
 app.use(cookieParser());
 
-
+// ✅ API routes
 app.use("/api/payments", paymentRoutes);
 app.use("/api/webhooks", paymentRoutes);
 app.use("/api/locations", locationsRouter);
 app.use("/api/auth", auth);
 app.use("/api/email", emailRoutes);
 
-app.get("/", (req, res) => res.send("API running 🚀"));
+// ✅ Health check endpoint for Render
+app.get("/", (req, res) => res.send("✅ Cardirectory API running 🚀"));
 
-app.listen(process.env.PORT || 5000, () =>
-  console.log(`🚀 Server running on port ${process.env.PORT || 5000}`)
-);
+// ✅ Handle unknown routes gracefully
+app.use((req, res) => {
+  res.status(404).json({ error: "Route not found" });
+});
+
+// ✅ PORT & HOST (Render requirement)
+const PORT = Number(process.env.PORT) || 5000;
+const HOST = "0.0.0.0";
+
+// ✅ Start server
+app.listen(PORT, HOST, () => {
+  console.log(`🚀 Server running on http://${HOST}:${PORT}`);
+});
