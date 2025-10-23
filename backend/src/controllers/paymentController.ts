@@ -10,7 +10,8 @@ import cron from "node-cron";
 const CONSUMER_KEY = process.env.PESAPAL_CONSUMER_KEY!;
 const CONSUMER_SECRET = process.env.PESAPAL_CONSUMER_SECRET!;
 const PESAPAL_NOTIFICATION_ID = process.env.PESAPAL_NOTIFICATION_ID;
-const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
+const FRONTEND_URL = process.env.FRONTEND_URL;
+const PESAPAL_IPN_URL = process.env.PESAPAL_IPN_URL!;
 
 const ENV = process.env.PESAPAL_ENVIRONMENT === "production" ? "live" : "sandbox";
 const BASE_URL =
@@ -62,24 +63,18 @@ export const createPesaPalOrder = async (req: Request, res: Response): Promise<R
       return res.status(400).json({ error: "Missing required parameters" });
     }
 
-    // ✅ Unique order reference
+    // ✅ Generate unique order reference
     const merchant_reference = `ORDER-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
-    const callback_url = process.env.PESAPAL_IPN_URL;
+    const callback_url = PESAPAL_IPN_URL;
 
-    // ✅ Save payment as pending
-    const { error: insertErr } = await supabase.from("payments").insert([
-      {
-        user_id,
-        plan_name: plan,
-        amount,
-        method: "pesapal",
-        phone,
-        status: "pending",
-        merchant_reference,
-      },
-    ]);
-    if (insertErr) throw insertErr;
+    // ✅ Insert pending payment into PostgreSQL
+    await query(
+      `INSERT INTO payments (user_id, plan_name, amount, method, phone, status, merchant_reference)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [user_id, plan, amount, "pesapal", phone, "pending", merchant_reference]
+    );
 
+    // ✅ Get Pesapal auth token
     const token = await getPesapalToken();
 
     // ✅ Dynamic redirect URL for this order
@@ -104,6 +99,7 @@ export const createPesaPalOrder = async (req: Request, res: Response): Promise<R
       },
     };
 
+    // ✅ Submit order to Pesapal API
     const resp = await fetch(`${BASE_URL}/api/Transactions/SubmitOrderRequest`, {
       method: "POST",
       headers: {
@@ -114,23 +110,24 @@ export const createPesaPalOrder = async (req: Request, res: Response): Promise<R
     });
 
     const data = await resp.json();
+
     if (!resp.ok || !data.redirect_url) {
       console.error("❌ Pesapal order error:", data);
       throw new Error(data.error || "Failed to create Pesapal order");
     }
 
-    // ✅ Success: return payment link & reference
+    // ✅ Success — return payment link & reference
     return res.status(200).json({
       success: true,
       payment_link: data.redirect_url,
       merchant_reference,
     });
+
   } catch (err: any) {
     console.error("❌ createPesaPalOrder error:", err);
     return res.status(500).json({ error: err.message });
   }
 };
-
 
 /**
  * STEP 3 — Handle Pesapal IPN (Webhook)
@@ -149,7 +146,7 @@ export const handlePesapalIPN = async (req: Request, res: Response): Promise<Res
     // ✅ Step 1: Get access token
     const token = await getPesapalToken();
 
-    // ✅ Step 2: Check transaction status from Pesapal
+    // ✅ Step 2: Fetch transaction status
     const statusResp = await fetch(
       `${BASE_URL}/api/Transactions/GetTransactionStatus?orderTrackingId=${OrderTrackingId}`,
       {
@@ -163,59 +160,71 @@ export const handlePesapalIPN = async (req: Request, res: Response): Promise<Res
     const paymentStatus = (statusData.payment_status_description || statusData.status || "").toUpperCase();
     const merchant_reference = OrderMerchantReference as string;
 
-    // ✅ Step 3: Fetch payment in your DB
-    const { data: payment, error: fetchError } = await supabase
-      .from("payments")
-      .select("user_id, plan_name, amount, status")
-      .eq("merchant_reference", merchant_reference)
-      .single();
+    // ✅ Step 3: Fetch payment details
+    const paymentResult = await query(
+      `SELECT user_id, plan_name, amount, status FROM payments WHERE merchant_reference = $1 LIMIT 1`,
+      [merchant_reference]
+    );
 
-    if (fetchError || !payment) {
+    if (paymentResult.rowCount === 0) {
       return res.status(404).json({ error: "Payment not found" });
     }
 
-    // ✅ Get user email
-    const { data: user } = await supabase
-      .from("users")
-      .select("email, full_name")
-      .eq("id", payment.user_id)
-      .single();
+    const payment = paymentResult.rows[0];
 
-    // ✅ Step 4: Define possible outcomes
+    // ✅ Step 4: Get user info
+    const userResult = await query(
+      `SELECT email, full_name FROM users WHERE id = $1 LIMIT 1`,
+      [payment.user_id]
+    );
+    const user = userResult.rows[0];
+
+    // ✅ Step 5: Define payment states
     const successStates = ["COMPLETED", "SUCCESS", "PAID"];
     const failedStates = ["FAILED", "CANCELLED", "REVERSED", "INVALID"];
 
     if (successStates.includes(paymentStatus)) {
-      // If payment succeeded and not already marked success
       if (payment.status !== "success") {
-        await supabase
-          .from("payments")
-          .update({ status: "success" })
-          .eq("merchant_reference", merchant_reference);
+        // ✅ Mark payment as successful
+        await query(
+          `UPDATE payments SET status = 'success' WHERE merchant_reference = $1`,
+          [merchant_reference]
+        );
 
-        // Create or update subscription
-        const endDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+        // ✅ Calculate subscription end date
+        const startDate = new Date();
+        const endDate = new Date(startDate);
+        endDate.setDate(startDate.getDate() + 30);
 
-        await supabase.from("subscriptions").upsert({
-          user_id: payment.user_id,
-          plan_name: payment.plan_name,
-          price: payment.amount,
-          listings_allowed: 50,
-          listings_used: 0,
-          start_date: new Date().toISOString(),
-          end_date: endDate,
-          status: "active",
-        });
+        // ✅ Create or update subscription
+        await query(
+          `INSERT INTO subscriptions (user_id, plan_name, price, listings_allowed, listings_used, start_date, end_date, status)
+           VALUES ($1, $2, $3, 50, 0, $4, $5, 'active')
+           ON CONFLICT (user_id) DO UPDATE 
+           SET plan_name = EXCLUDED.plan_name,
+               price = EXCLUDED.price,
+               listings_allowed = EXCLUDED.listings_allowed,
+               listings_used = 0,
+               start_date = EXCLUDED.start_date,
+               end_date = EXCLUDED.end_date,
+               status = 'active'`,
+          [payment.user_id, payment.plan_name, payment.amount, startDate.toISOString(), endDate.toISOString()]
+        );
 
-        await supabase.from("users").update({ role: "dealer" }).eq("id", payment.user_id);
+        // ✅ Update user role
+        await query(`UPDATE users SET role = 'dealer' WHERE id = $1`, [payment.user_id]);
 
-        await supabase
-          .from("user_roles")
-          .upsert([{ user_id: payment.user_id, role: "dealer" }], { onConflict: "user_id" });
+        // ✅ Upsert user_roles
+        await query(
+          `INSERT INTO user_roles (user_id, role)
+           VALUES ($1, 'dealer')
+           ON CONFLICT (user_id) DO UPDATE SET role = 'dealer'`,
+          [payment.user_id]
+        );
 
         console.log(`✅ User ${payment.user_id} upgraded to dealer.`);
 
-        // 📨 Send Success Email
+        // ✅ Send Success Email
         if (user?.email) {
           await sendMassEmail(
             [user.email],
@@ -223,20 +232,20 @@ export const handlePesapalIPN = async (req: Request, res: Response): Promise<Res
             `Hi ${user.full_name || "there"},<br/><br/>
             Your payment of <b>KES ${payment.amount}</b> for the <b>${payment.plan_name}</b> plan was successful.<br/>
             Your dealer account has been activated and is valid for 30 days.<br/><br/>
-            <a href="${process.env.FRONTEND_URL}/dashboard" class="btn">Go to Dashboard</a>`
+            <a href="${FRONTEND_URL}/dashboard" class="btn">Go to Dashboard</a>`
           );
         }
       }
     } else if (failedStates.includes(paymentStatus)) {
-      // Update payment to failed/cancelled
-      await supabase
-        .from("payments")
-        .update({ status: "failed" })
-        .eq("merchant_reference", merchant_reference);
+      // ✅ Mark payment as failed
+      await query(
+        `UPDATE payments SET status = 'failed' WHERE merchant_reference = $1`,
+        [merchant_reference]
+      );
 
       console.log(`❌ Payment ${merchant_reference} marked as failed.`);
 
-      // 📨 Send Failure Email
+      // ✅ Send Failure Email
       if (user?.email) {
         await sendMassEmail(
           [user.email],
@@ -244,13 +253,14 @@ export const handlePesapalIPN = async (req: Request, res: Response): Promise<Res
           `Hi ${user.full_name || "there"},<br/><br/>
           Unfortunately, your payment for the <b>${payment.plan_name}</b> plan was not successful.<br/>
           If this was a mistake, please try again.<br/><br/>
-          <a href="${process.env.FRONTEND_URL}/pricing" class="btn">Retry Payment</a>`
+          <a href="${FRONTEND_URL}/pricing" class="btn">Retry Payment</a>`
         );
       }
     }
 
-    // ✅ Step 5: Respond OK to Pesapal
+    // ✅ Step 6: Acknowledge Pesapal IPN
     return res.status(200).json({ received: true });
+
   } catch (err: any) {
     console.error("❌ Pesapal IPN Error:", err);
     return res.status(500).json({ error: err.message });
@@ -261,7 +271,7 @@ export const handlePesapalIPN = async (req: Request, res: Response): Promise<Res
  * STEP 4 — Get Payment Status (Called from frontend /payment-status page)
  */
 export const paymentstatus = async (req: Request, res: Response): Promise<Response> => {
-  console.log('checking payments status');
+  console.log("🔎 Checking payment status...");
   try {
     const { merchant_reference } = req.params;
 
@@ -269,22 +279,22 @@ export const paymentstatus = async (req: Request, res: Response): Promise<Respon
       return res.status(400).json({ success: false, error: "Missing merchant_reference" });
     }
 
-    // ✅ Get payment record
-    const { data: payment, error: fetchError } = await supabase
-      .from("payments")
-      .select("*")
-      .eq("merchant_reference", merchant_reference)
-      .single();
+    // ✅ Get payment record from PostgreSQL
+    const result = await query(
+      `SELECT * FROM payments WHERE merchant_reference = $1 LIMIT 1`,
+      [merchant_reference]
+    );
+    const payment = result.rows[0];
 
-    if (fetchError || !payment) {
-      console.log('payments not found');
+    if (!payment) {
+      console.log("❌ Payment not found");
       return res.status(404).json({ success: false, error: "Payment not found" });
     }
 
     // ✅ Get Pesapal token
     const token = await getPesapalToken();
 
-    // ✅ Prefer tracking_id, but fallback to merchant_reference if missing
+    // ✅ Use tracking_id if exists, else merchant_reference
     const trackingId = payment.tracking_id || payment.merchant_reference;
 
     const response = await fetch(
@@ -301,19 +311,18 @@ export const paymentstatus = async (req: Request, res: Response): Promise<Respon
     const statusData = await response.json();
     const paymentStatus = statusData.payment_status_description?.toUpperCase() || "FAILED";
 
-    // ✅ Normalize statuses for frontend
+    // ✅ Normalize status for frontend
     let frontendStatus: "success" | "pending" | "cancelled" | "failed" = "failed";
-
     if (["COMPLETED", "SUCCESS", "PAID"].includes(paymentStatus)) frontendStatus = "success";
     else if (["PENDING", "PROCESSING"].includes(paymentStatus)) frontendStatus = "pending";
     else if (["CANCELLED", "FAILED", "REVERSED"].includes(paymentStatus)) frontendStatus = "cancelled";
 
-    // ✅ Optional: update DB if status changed
+    // ✅ Update DB if status changed
     if (frontendStatus !== payment.status) {
-      await supabase
-        .from("payments")
-        .update({ status: frontendStatus })
-        .eq("merchant_reference", merchant_reference);
+      await query(
+        `UPDATE payments SET status = $1 WHERE merchant_reference = $2`,
+        [frontendStatus, merchant_reference]
+      );
     }
 
     return res.status(200).json({
@@ -492,72 +501,76 @@ export const trialReminderJob = async () => {
     const tomorrow = now.plus({ days: 1 }).toISODate();
 
     // ✅ 1. Find users whose trial ends TOMORROW (for reminder)
-    const { data: users, error } = await supabase
-      .from("users")
-      .select("id, email, trial_end, trial_reminder_sent, role")
-      .eq("role", "dealer")
-      .eq("trial_reminder_sent", false)
-      .eq("trial_end", tomorrow);
+    const usersResult = await query(
+      `SELECT id, email, trial_end, trial_reminder_sent, role 
+       FROM users 
+       WHERE role = $1 
+       AND trial_reminder_sent = false 
+       AND trial_end::date = $2`,
+      ["dealer", tomorrow]
+    );
 
-    if (error) {
-      console.error("❌ Error fetching trial users:", error);
-      return;
-    }
+    const users = usersResult.rows;
 
-    // ✅ Send reminder emails for those ending tomorrow
-    if (users?.length) {
+    if (users.length > 0) {
       console.log(`📌 Found ${users.length} trial users to notify...`);
+
       for (const user of users) {
         const trialEnd = DateTime.fromISO(user.trial_end);
         const emailRes = await sendTrialReminderEmail(user.email, trialEnd.toJSDate());
 
         if (!emailRes.error) {
           // ✅ Mark reminder as sent
-          await supabase
-            .from("users")
-            .update({ trial_reminder_sent: true })
-            .eq("id", user.id);
+          await query(
+            `UPDATE users SET trial_reminder_sent = true WHERE id = $1`,
+            [user.id]
+          );
+          console.log(`📨 Reminder sent to ${user.email}`);
+        } else {
+          console.error(`❌ Failed to send reminder to ${user.email}:`, emailRes.error);
         }
       }
+
       console.log("✅ Trial reminder emails sent successfully!");
     } else {
       console.log("✅ No users need a trial reminder today");
     }
 
     // ✅ 2. Handle expired trials (trial_end < now)
-    const { data: expiredUsers, error: expiredError } = await supabase
-      .from("users")
-      .select("id, email, role, trial_end")
-      .lt("trial_end", now.toISO())
-      .neq("role", "admin"); // Never demote admins
+    const expiredUsersResult = await query(
+      `SELECT id, email, role, trial_end 
+       FROM users 
+       WHERE trial_end < $1 
+       AND role != 'admin'`,
+      [now.toISO()]
+    );
 
-    if (expiredError) {
-      console.error("❌ Error fetching expired users:", expiredError);
-      return;
-    }
+    const expiredUsers = expiredUsersResult.rows;
 
-    if (expiredUsers?.length) {
+    if (expiredUsers.length > 0) {
       console.log(`⚠️ Found ${expiredUsers.length} expired trial users...`);
 
       for (const user of expiredUsers) {
-        // ✅ Ensure they can’t retry trial
-        await supabase
-          .from("users")
-          .update({
-            role: "user", // Demote to regular user
-            trial_end: null, // Clear trial date
-            trial_reminder_sent: true, // No further reminders
-            has_used_trial: true, // Optional flag if you add this column
-          })
-          .eq("id", user.id);
+        // ✅ Update their account to revert from trial
+        await query(
+          `UPDATE users 
+           SET role = 'user', 
+               trial_end = NULL, 
+               trial_reminder_sent = true, 
+               has_used_trial = true 
+           WHERE id = $1`,
+          [user.id]
+        );
 
         console.log(`🔻 User ${user.email} trial expired and reverted to 'user'.`);
       }
+
+      console.log("✅ Expired trials handled successfully!");
     } else {
       console.log("✅ No expired trials found today");
     }
-  } catch (err) {
-    console.error("⚠️ Trial reminder job error:", err);
+  } catch (err: any) {
+    console.error("⚠️ Trial reminder job error:", err.message);
   }
 };
 
