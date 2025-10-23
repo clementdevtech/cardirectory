@@ -1,7 +1,6 @@
-import { supabase } from "../supabaseClient";
+import { query } from "../db";
 import nodemailer from "nodemailer";
 import dotenv from "dotenv";
-
 
 dotenv.config();
 
@@ -21,12 +20,12 @@ const transporter = nodemailer.createTransport({
   port: 465,
   secure: true,
   auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
+    user: EMAIL_USER,
+    pass: EMAIL_PASS,
   },
 });
 
-// ✅ HTML Template Generator (with branding + responsiveness + dark mode)
+// ✅ HTML Template Generator
 const generateEmailTemplate = (
   title: string,
   message: string,
@@ -40,9 +39,7 @@ const generateEmailTemplate = (
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${title}</title>
 <style>
-  :root {
-    color-scheme: light dark;
-  }
+  :root { color-scheme: light dark; }
   body {
     margin: 0;
     padding: 0;
@@ -51,13 +48,8 @@ const generateEmailTemplate = (
     color: #333;
   }
   @media (prefers-color-scheme: dark) {
-    body {
-      background-color: #121212;
-      color: #f0f0f0;
-    }
-    .container {
-      background-color: #1e1e1e !important;
-    }
+    body { background-color: #121212; color: #f0f0f0; }
+    .container { background-color: #1e1e1e !important; }
   }
   .container {
     max-width: 600px;
@@ -67,25 +59,11 @@ const generateEmailTemplate = (
     box-shadow: 0 2px 8px rgba(0,0,0,0.1);
     overflow: hidden;
   }
-  .header {
-    background-color: ${BRAND_COLOR};
-    padding: 20px;
-    text-align: center;
-  }
-  .header img {
-    width: 120px;
-  }
-  .body {
-    padding: 30px;
-  }
-  .body h2 {
-    color: ${BRAND_COLOR};
-    margin-bottom: 15px;
-  }
-  .body p {
-    font-size: 16px;
-    line-height: 1.6;
-  }
+  .header { background-color: ${BRAND_COLOR}; padding: 20px; text-align: center; }
+  .header img { width: 120px; }
+  .body { padding: 30px; }
+  .body h2 { color: ${BRAND_COLOR}; margin-bottom: 15px; }
+  .body p { font-size: 16px; line-height: 1.6; }
   .btn {
     display: inline-block;
     background-color: ${BRAND_COLOR};
@@ -104,15 +82,9 @@ const generateEmailTemplate = (
     background-color: #f1f1f1;
   }
   @media (prefers-color-scheme: dark) {
-    .footer {
-      background-color: #181818;
-      color: #aaa;
-    }
+    .footer { background-color: #181818; color: #aaa; }
   }
-  .social-icons img {
-    width: 24px;
-    margin: 0 6px;
-  }
+  .social-icons img { width: 24px; margin: 0 6px; }
 </style>
 </head>
 <body>
@@ -144,14 +116,22 @@ const generateEmailTemplate = (
 </html>
 `;
 
-// ✅ Send Password Reset Email
+/* ----------------------------------------------------------
+   PASSWORD RESET EMAIL (using db instead of Supabase)
+----------------------------------------------------------- */
 export const sendPasswordResetEmail = async (email: string): Promise<{ error?: string }> => {
   try {
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${FRONTEND_URL}/reset-password`,
-    });
+    const token = Math.random().toString(36).substring(2, 15);
+    const expiry = new Date(Date.now() + 1000 * 60 * 15); // 15 minutes
 
-    if (error) return { error: error.message };
+    await query(
+      `INSERT INTO password_resets (email, token, expires_at)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (email) DO UPDATE SET token = $2, expires_at = $3`,
+      [email, token, expiry]
+    );
+
+    const resetLink = `${FRONTEND_URL}/reset-password?token=${token}`;
 
     await transporter.sendMail({
       from: `"${BRAND_NAME} Support" <${EMAIL_USER}>`,
@@ -160,7 +140,7 @@ export const sendPasswordResetEmail = async (email: string): Promise<{ error?: s
       html: generateEmailTemplate(
         "Password Reset Request",
         "We received a request to reset your password. Please click below to proceed.",
-        `${FRONTEND_URL}/reset-password`,
+        resetLink,
         "Reset Password"
       ),
     });
@@ -168,24 +148,27 @@ export const sendPasswordResetEmail = async (email: string): Promise<{ error?: s
     console.log(`📧 Password reset email sent to ${email}`);
     return {};
   } catch (err: any) {
-    console.error("⚠️ Unexpected error:", err);
+    console.error("⚠️ Password Reset Error:", err);
     return { error: "Failed to send password reset email." };
   }
 };
 
-// ✅ Send Verification Email
+/* ----------------------------------------------------------
+   EMAIL VERIFICATION (using db instead of Supabase)
+----------------------------------------------------------- */
 export const sendVerificationEmail = async (email: string, verifyLink: string): Promise<{ error?: string }> => {
-  console.log('running');
   try {
-    const { error } = await supabase.auth.resend({
-      type: "signup",
-      email,
-      options: {
-        emailRedirectTo: `${verifyLink}/verify-email`,
-      },
-    });
+    const token = Math.random().toString(36).substring(2, 15);
+    const expiry = new Date(Date.now() + 1000 * 60 * 60); // 1 hour
 
-    if (error) return { error: error.message };
+    await query(
+      `INSERT INTO email_verifications (email, token, expires_at)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (email) DO UPDATE SET token = $2, expires_at = $3`,
+      [email, token, expiry]
+    );
+
+    const link = `${verifyLink}/verify-email?token=${token}`;
 
     await transporter.sendMail({
       from: `"${BRAND_NAME}" <${EMAIL_USER}>`,
@@ -194,7 +177,7 @@ export const sendVerificationEmail = async (email: string, verifyLink: string): 
       html: generateEmailTemplate(
         "Verify Your Email",
         "Thanks for joining! Please verify your email by clicking the button below.",
-        `${verifyLink}/verify-email`,
+        link,
         "Verify Email"
       ),
     });
@@ -202,12 +185,14 @@ export const sendVerificationEmail = async (email: string, verifyLink: string): 
     console.log(`✅ Verification email sent to ${email}`);
     return {};
   } catch (err: any) {
-    console.error("⚠️ Unexpected error:", err);
+    console.error("⚠️ Verification Email Error:", err);
     return { error: "Failed to send verification email." };
   }
 };
 
-// ✅ Send Normal or Mass Email
+/* ----------------------------------------------------------
+   MASS EMAIL
+----------------------------------------------------------- */
 export const sendMassEmail = async (
   recipients: string[],
   subject: string,
@@ -236,7 +221,9 @@ export const sendMassEmail = async (
   }
 };
 
-// ✅ Send Trial Activation Email
+/* ----------------------------------------------------------
+   TRIAL EMAILS
+----------------------------------------------------------- */
 export const sendTrialActivationEmail = async (
   email: string,
   trialEnd: Date
@@ -268,8 +255,6 @@ export const sendTrialActivationEmail = async (
   }
 };
 
-
-// ✅ Send Trial Ending Reminder Email
 export const sendTrialReminderEmail = async (
   email: string,
   trialEnd: Date
