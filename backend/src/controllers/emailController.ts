@@ -2,6 +2,7 @@ import { supabase } from "../supabaseClient";
 import nodemailer from "nodemailer";
 import dotenv from "dotenv";
 
+
 dotenv.config();
 
 const FRONTEND_URL = process.env.FRONTEND_URL;
@@ -232,5 +233,70 @@ export const sendMassEmail = async (
   } catch (err) {
     console.error("⚠️ Failed to send mass email:", err);
     return { success: false };
+  }
+};
+
+// ✅ Send Trial Activation Email
+export const sendTrialActivationEmail = async (
+  email: string,
+  trialEnd: Date
+): Promise<{ error?: string }> => {
+  try {
+    const message = `
+      Congratulations! 🎉 Your free trial is now active.
+      Enjoy listing one car for 7 days on ${BRAND_NAME}.
+      Your trial will end on <b>${trialEnd.toDateString()}</b>.
+    `;
+
+    await transporter.sendMail({
+      from: `"${BRAND_NAME} Team" <${EMAIL_USER}>`,
+      to: email,
+      subject: "🎉 Free Trial Activated — Start Listing!",
+      html: generateEmailTemplate(
+        "Free Trial Activated 🎉",
+        message,
+        `${FRONTEND_URL}/dashboard`,
+        "Go To Dashboard"
+      ),
+    });
+
+    console.log(`📧 Trial activation email sent to ${email}`);
+    return {};
+  } catch (err: any) {
+    console.error("⚠️ Trial Email Error:", err);
+    return { error: "Failed to send trial activation email." };
+  }
+};
+
+
+// ✅ Send Trial Ending Reminder Email
+export const sendTrialReminderEmail = async (
+  email: string,
+  trialEnd: Date
+): Promise<{ error?: string }> => {
+  try {
+    const message = `
+      Hey! 👋 Your free trial with ${BRAND_NAME} is almost ending.
+      It expires on <b>${trialEnd.toDateString()}</b>.
+      Upgrade now to avoid losing access to car listing features.
+    `;
+
+    await transporter.sendMail({
+      from: `"${BRAND_NAME} Billing" <${EMAIL_USER}>`,
+      to: email,
+      subject: "⏳ Your Free Trial Ends Soon — Don’t Miss Out!",
+      html: generateEmailTemplate(
+        "Trial Ending Soon ⏳",
+        message,
+        `${FRONTEND_URL}/pricing`,
+        "Upgrade Now"
+      ),
+    });
+
+    console.log(`📧 Trial reminder email sent to ${email}`);
+    return {};
+  } catch (err: any) {
+    console.error("⚠️ Trial Reminder Error:", err);
+    return { error: "Failed to send trial reminder email." };
   }
 };

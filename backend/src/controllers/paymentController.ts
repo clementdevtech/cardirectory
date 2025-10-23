@@ -1,7 +1,10 @@
 import { Request, Response } from "express";
 import fetch from "node-fetch";
 import { supabase } from "../supabaseClient";
-import { sendMassEmail } from "./emailController";
+import { query } from "../db";
+import { sendMassEmail, sendTrialActivationEmail, sendTrialReminderEmail  } from "./emailController";
+import { DateTime } from "luxon";
+import cron from "node-cron";
 
 // ✅ Environment Setup
 const CONSUMER_KEY = process.env.PESAPAL_CONSUMER_KEY!;
@@ -325,9 +328,131 @@ export const paymentstatus = async (req: Request, res: Response): Promise<Respon
   }
 };
 
+
 /**
  * 
- * STEP 5 — Register IPN (Run once to get notification_id)
+ * STEP 6 — Register IPN (Run once to get notification_id)
+ */
+
+
+export const activateFreeTrial = async (req: Request, res: Response) => {
+  console.log("📌 Trial Activation Endpoint Hit");
+
+  try {
+    const { user_id, email, full_name, phone, country } = req.body;
+
+    if (!user_id || !email) {
+      return res.status(400).json({
+        success: false,
+        error: "Missing user details",
+      });
+    }
+
+    // 1️⃣ Fetch user data
+    const { rows: users } = await query(
+      `SELECT id, role, trial_end, trial_used, full_name, email FROM users WHERE id = $1`,
+      [user_id]
+    );
+    const existing = users[0];
+
+    if (!existing)
+      return res.status(404).json({ success: false, error: "User not found" });
+
+    const now = new Date();
+    const trialEnd = existing.trial_end ? new Date(existing.trial_end) : null;
+
+    // 2️⃣ Prevent reactivation if already used once
+    if (existing.trial_used) {
+      return res.status(403).json({
+        success: false,
+        error: "Free trial has already been used and cannot be reactivated.",
+      });
+    }
+
+    // 3️⃣ Prevent duplicate activation if trial still active
+    if (trialEnd && trialEnd > now) {
+      return res.json({
+        success: true,
+        message: "Active trial already exists",
+        alreadyHasTrial: true,
+      });
+    }
+
+    // 4️⃣ Skip for admins
+    if (existing.role === "admin") {
+      return res.json({
+        success: true,
+        message: "Admins do not require a free trial.",
+        role: existing.role,
+      });
+    }
+
+    // 5️⃣ Create 7-day trial
+    const trialStart = now;
+    const newTrialEnd = new Date(now);
+    newTrialEnd.setDate(now.getDate() + 7);
+
+    // 6️⃣ Update user info and mark as used
+    await query(
+      `
+      UPDATE users
+      SET 
+        role = 'dealer',
+        trial_start = $1,
+        trial_end = $2,
+        trial_used = true,
+        updated_at = NOW()
+      WHERE id = $3
+    `,
+      [trialStart.toISOString(), newTrialEnd.toISOString(), user_id]
+    );
+
+    // 7️⃣ Ensure dealer profile exists
+    const { rows: dealerCheck } = await query(
+      `SELECT id FROM dealers WHERE user_id = $1`,
+      [user_id]
+    );
+
+    if (dealerCheck.length === 0) {
+      await query(
+        `
+        INSERT INTO dealers (user_id, full_name, email, phone, country, status, created_at)
+        VALUES ($1, $2, $3, $4, $5, 'pending', NOW())
+      `,
+        [
+          user_id,
+          existing.full_name || full_name || "Unnamed Dealer",
+          existing.email || email,
+          phone || null,
+          country || null,
+        ]
+      );
+    }
+
+    // 8️⃣ Send activation email
+    await sendTrialActivationEmail(email, newTrialEnd);
+
+    console.log("✅ Trial activated for:", email);
+
+    return res.json({
+      success: true,
+      message: "Free trial activated successfully.",
+      role: "dealer",
+      trial_start: trialStart,
+      trial_end: newTrialEnd,
+    });
+  } catch (err: any) {
+    console.error("❌ Free Trial Error:", err);
+    res.status(500).json({
+      success: false,
+      error: err.message,
+    });
+  }
+};
+
+/**
+ * 
+ * STEP 6 — Register IPN (Run once to get notification_id)
  */
 export const registerPesapalIPN = async (req: Request, res: Response) => {
   try {
@@ -360,3 +485,81 @@ export const registerPesapalIPN = async (req: Request, res: Response) => {
     return res.status(500).json({ success: false, error: (err as Error).message });
   }
 };
+
+export const trialReminderJob = async () => {
+  try {
+    const now = DateTime.now();
+    const tomorrow = now.plus({ days: 1 }).toISODate();
+
+    // ✅ 1. Find users whose trial ends TOMORROW (for reminder)
+    const { data: users, error } = await supabase
+      .from("users")
+      .select("id, email, trial_end, trial_reminder_sent, role")
+      .eq("role", "dealer")
+      .eq("trial_reminder_sent", false)
+      .eq("trial_end", tomorrow);
+
+    if (error) {
+      console.error("❌ Error fetching trial users:", error);
+      return;
+    }
+
+    // ✅ Send reminder emails for those ending tomorrow
+    if (users?.length) {
+      console.log(`📌 Found ${users.length} trial users to notify...`);
+      for (const user of users) {
+        const trialEnd = DateTime.fromISO(user.trial_end);
+        const emailRes = await sendTrialReminderEmail(user.email, trialEnd.toJSDate());
+
+        if (!emailRes.error) {
+          // ✅ Mark reminder as sent
+          await supabase
+            .from("users")
+            .update({ trial_reminder_sent: true })
+            .eq("id", user.id);
+        }
+      }
+      console.log("✅ Trial reminder emails sent successfully!");
+    } else {
+      console.log("✅ No users need a trial reminder today");
+    }
+
+    // ✅ 2. Handle expired trials (trial_end < now)
+    const { data: expiredUsers, error: expiredError } = await supabase
+      .from("users")
+      .select("id, email, role, trial_end")
+      .lt("trial_end", now.toISO())
+      .neq("role", "admin"); // Never demote admins
+
+    if (expiredError) {
+      console.error("❌ Error fetching expired users:", expiredError);
+      return;
+    }
+
+    if (expiredUsers?.length) {
+      console.log(`⚠️ Found ${expiredUsers.length} expired trial users...`);
+
+      for (const user of expiredUsers) {
+        // ✅ Ensure they can’t retry trial
+        await supabase
+          .from("users")
+          .update({
+            role: "user", // Demote to regular user
+            trial_end: null, // Clear trial date
+            trial_reminder_sent: true, // No further reminders
+            has_used_trial: true, // Optional flag if you add this column
+          })
+          .eq("id", user.id);
+
+        console.log(`🔻 User ${user.email} trial expired and reverted to 'user'.`);
+      }
+    } else {
+      console.log("✅ No expired trials found today");
+    }
+  } catch (err) {
+    console.error("⚠️ Trial reminder job error:", err);
+  }
+};
+
+// ✅ Run every day at midnight UTC
+cron.schedule("0 0 * * *", trialReminderJob);

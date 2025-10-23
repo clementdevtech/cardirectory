@@ -41,57 +41,63 @@ const Checkout: React.FC = () => {
   };
 
   // 🕐 Handle Free Trial Logic (with active trial check)
-  const handleFreeTrial = async (userId: string) => {
-    try {
-      // 1️⃣ Check if user already has a trial
-      const { data: existingUser, error: fetchError } = await supabase
-        .from("users")
-        .select("trial_start, trial_end, role")
-        .eq("id", userId)
-        .single();
+const handleFreeTrial = async (user: { id: string; email: string }) => {
+  try {
+    // ✅ First check user status locally
+    const now = new Date();
+    const { data: existingUser, error: fetchError } = await supabase
+      .from("users")
+      .select("trial_end, role")
+      .eq("id", user.id)
+      .single();
 
-      if (fetchError) throw fetchError;
+    if (fetchError) throw fetchError;
 
-      const now = new Date();
-      const trialEnd = existingUser?.trial_end ? new Date(existingUser.trial_end) : null;
+    const trialEnd = existingUser?.trial_end ? new Date(existingUser.trial_end) : null;
 
-      // If trial still active
-      if (trialEnd && trialEnd > now) {
-        const daysLeft = Math.ceil((trialEnd.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-        toast.warning(`⚠️ You already have an active trial (${daysLeft} days left).`);
-        navigate("/dashboard");
-        return;
-      }
-
-      // If user already a dealer
-      if (existingUser?.role === "dealer") {
-        toast.info("You’re already a dealer. No need for a free trial.");
-        navigate("/dashboard");
-        return;
-      }
-
-      // 2️⃣ Create new 7-day trial
-      const trialStart = new Date();
-      const newTrialEnd = new Date();
-      newTrialEnd.setDate(trialStart.getDate() + 7);
-
-      const { error: updateError } = await supabase
-        .from("users")
-        .update({
-          trial_start: trialStart.toISOString(),
-          trial_end: newTrialEnd.toISOString(),
-        })
-        .eq("id", userId);
-
-      if (updateError) throw updateError;
-
-      toast.success("🎉 Your 7-day free trial has started!");
+    // ✅ If trial still active
+    if (trialEnd && trialEnd > now) {
+      const daysLeft = Math.ceil(
+        (trialEnd.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)
+      );
+      toast.info(`✅ You already have a trial (${daysLeft} days left).`);
       navigate("/dashboard");
-    } catch (err) {
-      console.error("Free trial setup error:", err);
-      toast.error("Failed to start free trial.");
+      return;
     }
-  };
+
+    // ✅ If already a dealer with no trial
+    if (existingUser?.role === "dealer") {
+      toast.info("You’re already a dealer 🎯");
+      navigate("/dashboard");
+      return;
+    }
+
+    // ✅ Call backend to activate trial
+    const token = localStorage.getItem("token");
+    const res = await fetch(`${API_BASE_URL}/payments/activate-trial`, {
+        method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+  },
+
+      body: JSON.stringify({ user_id: user.id, email: user.email }),
+    });
+
+    const data = await res.json();
+
+    if (!data.success) {
+      toast.error(data.error || "Could not activate trial");
+      return;
+    }
+
+    toast.success("🎉 Your 7-day free trial has started!");
+    navigate("/dashboard");
+  } catch (err) {
+    console.error("Free trial error:", err);
+    toast.error("❌ Something went wrong starting your trial");
+  }
+};
+
 
   // 💳 Handle payment for paid plans
   const handlePayment = async (): Promise<void> => {
@@ -102,11 +108,17 @@ const Checkout: React.FC = () => {
 
     // 👉 Free plan (7-day trial)
     if (selectedPlan === "free") {
-      setLoading(true);
-      await handleFreeTrial(user.id);
-      setLoading(false);
-      return;
-    }
+  if (!user?.id || !user?.email) {
+    toast.error("User data missing. Please log in again.");
+    return;
+  }
+
+  setLoading(true);
+  await handleFreeTrial({ id: user.id, email: user.email });
+  setLoading(false);
+  return;
+}
+
 
     // 👉 Paid plans (standard / premium)
     if (!phone) {
