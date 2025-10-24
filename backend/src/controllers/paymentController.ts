@@ -459,6 +459,49 @@ export const activateFreeTrial = async (req: Request, res: Response) => {
   }
 };
 
+
+
+export const submitAfterPayment = async (req: Request, res: Response) => {
+  try {
+    const { user_id, make, model, year, price, mileage, location, description, condition, transmission, phone, galleryFiles, hasVideo, plan } = req.body;
+
+    if (!user_id) return res.status(400).json({ success: false, error: "Missing user_id" });
+
+    const dealer = await supabase.from("dealers").select("id").eq("user_id", user_id).maybeSingle();
+
+    if (!dealer.data)
+      return res.status(400).json({ success: false, error: "Dealer not found" });
+
+    // ✅ Upload handling could be extended later
+    const { error } = await supabase.from("cars").insert([
+      {
+        make,
+        model,
+        year,
+        price,
+        mileage,
+        location,
+        description,
+        condition,
+        transmission,
+        phone,
+        gallery: galleryFiles || [],
+        featured: plan === "premium",
+        status: "active", // automatically approved after payment
+        dealer_id: dealer.data.id,
+      },
+    ]);
+
+    if (error) throw error;
+
+    return res.json({ success: true });
+  } catch (err: any) {
+    console.error("❌ submitAfterPayment error:", err);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+
 /**
  * 
  * STEP 6 — Register IPN (Run once to get notification_id)

@@ -3,68 +3,82 @@ import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { Loader2, Star, MapPin, Phone, Mail, CheckCircle } from "lucide-react";
+import { Loader2, MapPin, Phone, Mail, CheckCircle } from "lucide-react";
 
-// ✅ Strong type definition for Dealer
 interface Dealer {
   id: string;
-  name: string;
-  images: string[]; // multiple gallery images
-  video?: string; // optional video URL (under 20MB)
-  location: string;
-  phone: string;
-  email?: string;
-  rating?: number;
-  verified?: boolean;
-  latitude?: number;
-  longitude?: number;
+  full_name: string;
+  company_name?: string;
+  email: string;
+  phone?: string;
+  country?: string;
+  status: string;
+  created_at: string;
+  cars?: {
+    id: number;
+    gallery: string[];
+    make: string;
+    model: string;
+    price: number;
+  }[];
 }
 
 const Dealers: React.FC = () => {
   const [search, setSearch] = useState("");
-  const [filterLocation, setFilterLocation] = useState("");
+  const [filterCountry, setFilterCountry] = useState("");
   const [page, setPage] = useState(1);
   const limit = 6;
 
-  // 🚀 Fetch dealers from Supabase
+  // 🚀 Fetch dealers and their cars
   const { data: dealers, isLoading } = useQuery<Dealer[]>({
-    queryKey: ["dealers"],
+    queryKey: ["dealers-with-cars"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("dealers").select("*");
-      if (error) throw error;
+      // ✅ Get all dealers
+      const { data: dealerData, error: dealerError } = await supabase
+        .from("dealers")
+        .select("id, full_name, company_name, email, phone, country, status, created_at");
 
-      // 🧩 Normalize images (string → array if needed)
-      return (
-        data?.map((d: any) => ({
-          ...d,
-          images:
-            typeof d.images === "string"
-              ? JSON.parse(d.images)
-              : d.images || [],
-        })) || []
-      );
+      if (dealerError) throw dealerError;
+
+      // ✅ Fetch each dealer's cars
+      const dealerIds = dealerData.map((d) => d.id);
+      const { data: carsData, error: carsError } = await supabase
+        .from("cars")
+        .select("id, dealer_id, gallery, make, model, price, status")
+        .in("dealer_id", dealerIds)
+        .eq("status", "active");
+
+      if (carsError) throw carsError;
+
+      // ✅ Combine dealers + cars
+      const dealersWithCars = dealerData.map((dealer) => ({
+        ...dealer,
+        cars: carsData?.filter((car) => car.dealer_id === dealer.id) || [],
+      }));
+
+      return dealersWithCars;
     },
   });
 
-  // 🔍 Search + filter + pagination
+  // 🔍 Search, filter, and paginate
   const filteredDealers = useMemo(() => {
     if (!dealers) return [];
     return dealers
       .filter(
         (d) =>
-          d.name.toLowerCase().includes(search.toLowerCase()) &&
-          (filterLocation ? d.location === filterLocation : true)
+          d.full_name.toLowerCase().includes(search.toLowerCase()) &&
+          (filterCountry ? d.country === filterCountry : true)
       )
       .slice((page - 1) * limit, page * limit);
-  }, [dealers, search, filterLocation, page]);
+  }, [dealers, search, filterCountry, page]);
 
-  // 🌍 Unique locations
-  const locations = useMemo(
-    () => Array.from(new Set(dealers?.map((d) => d.location))),
+  // 🌍 Unique country list
+  const countries = useMemo(
+    () => Array.from(new Set(dealers?.map((d) => d.country).filter(Boolean))),
     [dealers]
   );
 
-  // 🦴 Loading state
+  // 🦴 Loading placeholder
   if (isLoading) {
     return (
       <div className="min-h-screen flex flex-col">
@@ -92,27 +106,27 @@ const Dealers: React.FC = () => {
         <section className="py-16">
           <div className="container mx-auto px-4">
             <h1 className="text-3xl font-bold mb-6 text-center">
-              🚗 Trusted Dealers
+              🚗 Verified Dealers
             </h1>
 
             {/* 🔍 Search & Filter */}
             <div className="flex flex-col md:flex-row gap-4 justify-center mb-8">
               <input
                 type="text"
-                placeholder="Search dealer..."
+                placeholder="Search dealer by name..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="border px-4 py-2 rounded-md w-full md:w-1/3"
               />
               <select
-                value={filterLocation}
-                onChange={(e) => setFilterLocation(e.target.value)}
+                value={filterCountry}
+                onChange={(e) => setFilterCountry(e.target.value)}
                 className="border px-4 py-2 rounded-md w-full md:w-1/4"
               >
-                <option value="">All Locations</option>
-                {locations.map((loc) => (
-                  <option key={loc} value={loc}>
-                    {loc}
+                <option value="">All Countries</option>
+                {countries.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
                   </option>
                 ))}
               </select>
@@ -125,106 +139,88 @@ const Dealers: React.FC = () => {
                   key={d.id}
                   className="border rounded-lg shadow-sm hover:shadow-lg transition bg-white overflow-hidden"
                 >
-                  {/* 🖼️ Gallery */}
-                  <div className="relative w-full h-48 overflow-hidden group">
-                    {d.images && d.images.length > 0 ? (
-                      <div className="flex overflow-x-auto snap-x snap-mandatory scrollbar-hide">
-                        {d.images.map((img, i) => (
-                          <img
-                            key={i}
-                            src={img}
-                            alt={`${d.name} image ${i + 1}`}
-                            className="object-cover w-full h-48 snap-center flex-shrink-0"
-                          />
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="bg-gray-100 h-48 flex items-center justify-center text-gray-400">
-                        No images available
-                      </div>
-                    )}
-                  </div>
-
-                  {/* 🎥 Short Video Preview */}
-                  {d.video && (
-                    <video
-                      controls
-                      className="w-full mt-2 rounded-md max-h-60"
-                      preload="none"
-                      playsInline
-                    >
-                      <source src={d.video} type="video/mp4" />
-                      Your browser does not support the video tag.
-                    </video>
-                  )}
-
-                  {/* 📋 Info */}
+                  {/* 🏢 Dealer Info */}
                   <div className="p-4">
-                    <div className="flex items-center justify-between">
-                      <h3 className="font-semibold text-lg flex items-center gap-2">
-                        {d.name}
-                        {d.verified && (
-                          <CheckCircle className="text-green-500 w-5 h-5" />
-                        )}
-                      </h3>
-                      <div className="flex text-yellow-500">
-                        {[...Array(5)].map((_, i) => (
-                          <Star
-                            key={i}
-                            fill={i < (d.rating || 0) ? "currentColor" : "none"}
-                            strokeWidth={1.5}
-                            className="w-4 h-4"
-                          />
-                        ))}
-                      </div>
-                    </div>
-
-                    <p className="text-sm text-gray-600 flex items-center mt-2">
-                      <MapPin className="w-4 h-4 mr-1" /> {d.location}
+                    <h3 className="font-semibold text-lg flex items-center gap-2">
+                      {d.full_name}
+                      {d.status === "approved" && (
+                        <CheckCircle className="text-green-500 w-5 h-5" />
+                      )}
+                    </h3>
+                    {d.company_name && (
+                      <p className="text-sm text-gray-600">{d.company_name}</p>
+                    )}
+                    <p className="text-sm text-gray-600 flex items-center mt-1">
+                      <MapPin className="w-4 h-4 mr-1" /> {d.country || "Unknown"}
+                    </p>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Dealer since {new Date(d.created_at).toLocaleDateString()}
                     </p>
 
                     {/* 📞 Contact Buttons */}
                     <div className="mt-4 flex flex-wrap gap-2">
-                      <a
-                        href={`https://wa.me/${d.phone.replace(/\s/g, "")}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="flex items-center gap-1 px-3 py-2 border rounded hover:bg-green-100"
-                      >
-                        <img
-                          src="https://upload.wikimedia.org/wikipedia/commons/6/6b/WhatsApp.svg"
-                          alt="WhatsApp"
-                          className="w-4 h-4"
-                        />
-                        WhatsApp
-                      </a>
-                      <a
-                        href={`tel:${d.phone}`}
-                        className="flex items-center gap-1 px-3 py-2 border rounded hover:bg-blue-100"
-                      >
-                        <Phone className="w-4 h-4" /> Call
-                      </a>
-                      {d.email && (
-                        <a
-                          href={`mailto:${d.email}`}
-                          className="flex items-center gap-1 px-3 py-2 border rounded hover:bg-gray-100"
-                        >
-                          <Mail className="w-4 h-4" /> Email
-                        </a>
+                      {d.phone && (
+                        <>
+                          <a
+                            href={`https://wa.me/${d.phone.replace(/\s/g, "")}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="flex items-center gap-1 px-3 py-2 border rounded hover:bg-green-100"
+                          >
+                            <img
+                              src="https://upload.wikimedia.org/wikipedia/commons/6/6b/WhatsApp.svg"
+                              alt="WhatsApp"
+                              className="w-4 h-4"
+                            />
+                            WhatsApp
+                          </a>
+                          <a
+                            href={`tel:${d.phone}`}
+                            className="flex items-center gap-1 px-3 py-2 border rounded hover:bg-blue-100"
+                          >
+                            <Phone className="w-4 h-4" /> Call
+                          </a>
+                        </>
                       )}
+                      <a
+                        href={`mailto:${d.email}`}
+                        className="flex items-center gap-1 px-3 py-2 border rounded hover:bg-gray-100"
+                      >
+                        <Mail className="w-4 h-4" /> Email
+                      </a>
                     </div>
-
-                    {/* 🗺️ Map Preview */}
-                    {d.latitude && d.longitude && (
-                      <iframe
-                        src={`https://www.google.com/maps?q=${d.latitude},${d.longitude}&z=15&output=embed`}
-                        width="100%"
-                        height="150"
-                        className="mt-3 rounded-md"
-                        loading="lazy"
-                      ></iframe>
-                    )}
                   </div>
+
+                  {/* 🚘 Dealer’s Cars Preview */}
+                  {d.cars && d.cars.length > 0 && (
+                    <div className="border-t bg-gray-50">
+                      <div className="flex overflow-x-auto gap-3 p-3 scrollbar-hide">
+                        {d.cars.map((car) => (
+                          <div key={car.id} className="min-w-[150px] rounded-lg overflow-hidden bg-white shadow-sm">
+                            {car.gallery?.[0] ? (
+                              <img
+                                src={car.gallery[0]}
+                                alt={`${car.make} ${car.model}`}
+                                className="w-full h-24 object-cover"
+                              />
+                            ) : (
+                              <div className="bg-gray-200 w-full h-24 flex items-center justify-center text-xs text-gray-500">
+                                No Image
+                              </div>
+                            )}
+                            <div className="p-2 text-center">
+                              <p className="text-sm font-medium">
+                                {car.make} {car.model}
+                              </p>
+                              <p className="text-xs text-gray-600">
+                                KES {Number(car.price).toLocaleString()}
+                              </p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

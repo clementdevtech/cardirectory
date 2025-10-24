@@ -86,7 +86,7 @@ const router = createBrowserRouter(
 />
 
       <Route
-        path="/dashboard"
+        path="/dealer"
         element={
           <ProtectedRoute>
             <DealerDashboard />

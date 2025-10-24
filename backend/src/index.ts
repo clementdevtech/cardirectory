@@ -8,6 +8,8 @@ import paymentRoutes from "./routes/payments";
 import locationsRouter from "./routes/locations";
 import auth from "./routes/auth";
 import emailRoutes from "./routes/emailRoutes";
+import adminRoutes from "./routes/adminRoutes";
+
 
 dotenv.config();
 
@@ -38,6 +40,7 @@ app.use("/api/webhooks", paymentRoutes);
 app.use("/api/locations", locationsRouter);
 app.use("/api/auth", auth);
 app.use("/api/email", emailRoutes);
+app.use("/api/admin", adminRoutes);
 
 // ✅ Health check endpoint for Render
 app.get("/", (req, res) => res.send("✅ Cardirectory API running 🚀"));

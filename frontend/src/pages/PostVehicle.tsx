@@ -178,89 +178,73 @@ const PostVehicle: React.FC = () => {
     });
 
   // 🧾 Submit Handler
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    if (!validateStep()) return;
+const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+  e.preventDefault();
+  if (!validateStep()) return;
 
-    setLoading(true);
-    try {
-      const galleryUrls: string[] = [];
-      if (galleryFiles.length > 0) {
-        const uploads = await Promise.all(
-          galleryFiles.map((file) =>
-            uploadWithProgress(file, "image", (progress) => {
-              setGalleryProgress((prev) =>
-                prev.map((p) => (p.fileName === file.name ? { ...p, progress } : p))
-              );
-            })
-          )
-        );
-        galleryUrls.push(...uploads);
-      }
-
-      let videoUrl: string | null = null;
-      if (videoFile) {
-        if (videoFile.size > 20 * 1024 * 1024) throw new Error("Video exceeds 20MB limit.");
-        videoUrl = await uploadWithProgress(videoFile, "video", (progress) =>
-          setVideoProgress({ fileName: videoFile.name, progress })
-        );
-      }
-
-      const insert: CarInsert = {
-        make: form.make,
-        model: form.model,
-        year: Number(form.year),
-        price: Number(form.price),
-        mileage: Number(form.mileage),
-        location: form.location,
-        description: form.description,
-        condition: form.condition,
-        transmission: form.transmission,
-        phone: form.phone,
-        gallery: galleryUrls,
-        video_url: videoUrl,
-        featured: false,
-        dealer_id: null,
-        status: "pending",
-        created_at: new Date().toISOString(),
-      };
-
-      const { error } = await supabase.from("cars").insert([insert]);
-      if (error) throw error;
-
-      toast({
-        title: "Success!",
-        description: "Your vehicle has been submitted for review.",
-      });
-
-      // Reset form
-      setForm({
-        make: "",
-        model: "",
-        year: "",
-        mileage: "",
-        condition: "good",
-        transmission: "",
-        price: "",
-        location: "",
-        phone: "",
-        description: "",
-      });
-      setGalleryFiles([]);
-      setVideoFile(null);
-      setGalleryProgress([]);
-      setVideoProgress(null);
-      setStep(1);
-    } catch (err: any) {
-      console.error("❌ Submission error:", err);
-      toast({
-        title: "Error",
-        description: err.message || "Submission failed.",
-      });
-    } finally {
-      setLoading(false);
+  setLoading(true);
+  try {
+    const galleryUrls: string[] = [];
+    if (galleryFiles.length > 0) {
+      const uploads = await Promise.all(
+        galleryFiles.map((file) =>
+          uploadWithProgress(file, "image", (progress) => {
+            setGalleryProgress((prev) =>
+              prev.map((p) => (p.fileName === file.name ? { ...p, progress } : p))
+            );
+          })
+        )
+      );
+      galleryUrls.push(...uploads);
     }
-  };
+
+    let videoUrl: string | null = null;
+    if (videoFile) {
+      if (videoFile.size > 20 * 1024 * 1024) throw new Error("Video exceeds 20MB limit.");
+      videoUrl = await uploadWithProgress(videoFile, "video", (progress) =>
+        setVideoProgress({ fileName: videoFile.name, progress })
+      );
+    }
+
+    // 🧩 Save all entered data temporarily before payment
+    const pendingCar = {
+      make: form.make,
+      model: form.model,
+      year: Number(form.year),
+      price: Number(form.price),
+      mileage: Number(form.mileage),
+      location: form.location,
+      description: form.description,
+      condition: form.condition,
+      transmission: form.transmission,
+      phone: form.phone,
+      gallery: galleryUrls,
+      video_url: videoUrl,
+      featured: false,
+      status: "pending",
+      created_at: new Date().toISOString(),
+    };
+
+    localStorage.setItem("pendingCar", JSON.stringify(pendingCar));
+
+    toast({
+      title: "Almost done!",
+      description: "Please select a plan to complete your listing.",
+    });
+
+    // 🧭 Redirect user to pricing page
+    window.location.href = "/pricing";
+  } catch (err: any) {
+    console.error("❌ Submission error:", err);
+    toast({
+      title: "Error",
+      description: err.message || "Submission failed.",
+    });
+  } finally {
+    setLoading(false);
+  }
+};
+
 
   const handleNext = () => {
     if (validateStep()) setStep((s) => s + 1);

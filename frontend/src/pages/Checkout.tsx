@@ -61,14 +61,14 @@ const handleFreeTrial = async (user: { id: string; email: string }) => {
         (trialEnd.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)
       );
       toast.info(`✅ You already have a trial (${daysLeft} days left).`);
-      navigate("/dashboard");
+      navigate("/dealer");
       return;
     }
 
     // ✅ If already a dealer with no trial
     if (existingUser?.role === "dealer") {
       toast.info("You’re already a dealer 🎯");
-      navigate("/dashboard");
+      navigate("/dealer");
       return;
     }
 
@@ -91,7 +91,7 @@ const handleFreeTrial = async (user: { id: string; email: string }) => {
     }
 
     toast.success("🎉 Your 7-day free trial has started!");
-    navigate("/dashboard");
+    navigate("/dealer");
   } catch (err) {
     console.error("Free trial error:", err);
     toast.error("❌ Something went wrong starting your trial");
@@ -99,70 +99,100 @@ const handleFreeTrial = async (user: { id: string; email: string }) => {
 };
 
 
-  // 💳 Handle payment for paid plans
-  const handlePayment = async (): Promise<void> => {
-    if (!user) {
-      toast.error("You must be logged in to continue.");
-      return;
-    }
-
-    // 👉 Free plan (7-day trial)
-    if (selectedPlan === "free") {
-  if (!user?.id || !user?.email) {
-    toast.error("User data missing. Please log in again.");
+// 💳 Handle payment for paid plans
+const handlePayment = async (): Promise<void> => {
+  if (!user) {
+    toast.error("You must be logged in to continue.");
     return;
   }
 
-  setLoading(true);
-  await handleFreeTrial({ id: user.id, email: user.email });
-  setLoading(false);
-  return;
-}
-
-
-    // 👉 Paid plans (standard / premium)
-    if (!phone) {
-      toast.error("Please enter your phone number");
-      return;
-    }
-
-    if (!validatePhoneNumber(phone)) {
-      toast.error("Invalid phone number format. Use 07XXXXXXXX or +2547XXXXXXXX");
+  // 👉 Free plan (7-day trial)
+  if (selectedPlan === "free") {
+    if (!user?.id || !user?.email) {
+      toast.error("User data missing. Please log in again.");
       return;
     }
 
     setLoading(true);
-    try {
-      const response = await fetch(`${API_BASE_URL}/payments/pesapal/create`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          user_id: user.id,
-          plan: selectedPlan,
-          amount,
-          phone,
-        }),
-      });
+    await handleFreeTrial({ id: user.id, email: user.email });
+    setLoading(false);
+    return;
+  }
 
-      const data: ApiResponse = await response.json();
-      if (!response.ok) throw new Error(data.error || "Payment failed");
+  // 👉 Paid plans (standard / premium)
+  if (!phone) {
+    toast.error("Please enter your phone number");
+    return;
+  }
 
-      toast.success("Payment initiated! Please check your phone to approve.");
+  if (!validatePhoneNumber(phone)) {
+    toast.error("Invalid phone number format. Use 07XXXXXXXX or +2547XXXXXXXX");
+    return;
+  }
 
-      setTimeout(() => {
-        if (data.payment_link) {
-          window.location.href = data.payment_link;
+  setLoading(true);
+  try {
+    const response = await fetch(`${API_BASE_URL}/payments/pesapal/create`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        user_id: user.id,
+        plan: selectedPlan,
+        amount,
+        phone,
+      }),
+    });
+
+    const data: ApiResponse = await response.json();
+    if (!response.ok) throw new Error(data.error || "Payment failed");
+
+    toast.success("Payment initiated! Please check your phone to approve.");
+
+    setTimeout(async () => {
+      if (data.payment_link) {
+        // Redirect to Pesapal checkout page
+        window.location.href = data.payment_link;
+      } else {
+        // ✅ If payment is successful and link not required, save vehicle
+        const pendingCar = localStorage.getItem("pendingCar");
+        if (pendingCar) {
+          const car = JSON.parse(pendingCar);
+          try {
+            const saveResponse = await fetch(`${API_BASE_URL}/cars/submit-after-payment`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                user_id: user.id,
+                ...car,
+                plan: selectedPlan,
+              }),
+            });
+
+            const result = await saveResponse.json();
+            if (result.success) {
+              toast.success("🚗 Your vehicle is now live!");
+              localStorage.removeItem("pendingCar");
+              navigate("/dealer");
+            } else {
+              toast.error(result.error || "Could not save vehicle.");
+            }
+          } catch (err) {
+            console.error("Car save error:", err);
+            toast.error("Error saving vehicle after payment.");
+          }
         } else {
-          navigate("/dashboard");
+          navigate("/dealer");
         }
-      }, 1500);
-    } catch (error) {
-      console.error("Payment initiation error:", error);
-      toast.error(error instanceof Error ? error.message : "Payment initiation failed");
-    } finally {
-      setLoading(false);
-    }
-  };
+      }
+    }, 1500);
+  } catch (error) {
+    console.error("Payment initiation error:", error);
+    toast.error(error instanceof Error ? error.message : "Payment initiation failed");
+  } finally {
+    setLoading(false);
+  }
+};
+
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
