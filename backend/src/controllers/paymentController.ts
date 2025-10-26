@@ -538,6 +538,29 @@ export const registerPesapalIPN = async (req: Request, res: Response) => {
   }
 };
 
+
+// In your paymentsController.ts
+
+export const getAllPayments = async (req: Request, res: Response) => {
+  try {
+    const result = await query(
+      `SELECT p.*, u.full_name, u.email 
+       FROM payments p
+       LEFT JOIN users u ON p.user_id = u.id
+       ORDER BY p.created_at DESC`
+    );
+
+    return res.status(200).json({
+      success: true,
+      payments: result.rows,
+    });
+  } catch (err: any) {
+    console.error("❌ getAllPayments error:", err);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+
 export const trialReminderJob = async () => {
   try {
     const now = DateTime.now();
