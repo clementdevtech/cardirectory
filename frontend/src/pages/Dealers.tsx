@@ -14,6 +14,7 @@ interface Dealer {
   country?: string;
   status: string;
   created_at: string;
+  company_logo?: string;
   cars?: {
     id: number;
     gallery: string[];
@@ -29,14 +30,16 @@ const Dealers: React.FC = () => {
   const [page, setPage] = useState(1);
   const limit = 6;
 
-  // 🚀 Fetch dealers and their cars
+  // 🚀 Fetch dealers and their cars (now includes logo)
   const { data: dealers, isLoading } = useQuery<Dealer[]>({
     queryKey: ["dealers-with-cars"],
     queryFn: async () => {
-      // ✅ Get all dealers
+      // ✅ Get all dealers (include company_logo)
       const { data: dealerData, error: dealerError } = await supabase
         .from("dealers")
-        .select("id, full_name, company_name, email, phone, country, status, created_at");
+        .select(
+          "id, full_name, company_name, email, phone, country, status, created_at, company_logo"
+        );
 
       if (dealerError) throw dealerError;
 
@@ -139,11 +142,24 @@ const Dealers: React.FC = () => {
                   key={d.id}
                   className="border rounded-lg shadow-sm hover:shadow-lg transition bg-white overflow-hidden"
                 >
-                  {/* 🏢 Dealer Info */}
+                  {/* 🏢 Dealer Logo */}
+                  {d.company_logo ? (
+                    <img
+                      src={d.company_logo}
+                      alt={`${d.full_name} logo`}
+                      className="w-full h-40 object-contain bg-gray-50 p-3 border-b"
+                    />
+                  ) : (
+                    <div className="w-full h-40 flex items-center justify-center bg-gray-100 text-gray-500 border-b">
+                      No Logo
+                    </div>
+                  )}
+
+                  {/* Dealer Info */}
                   <div className="p-4">
                     <h3 className="font-semibold text-lg flex items-center gap-2">
                       {d.full_name}
-                      {d.status === "approved" && (
+                      {d.status === "verified" && (
                         <CheckCircle className="text-green-500 w-5 h-5" />
                       )}
                     </h3>
@@ -196,7 +212,10 @@ const Dealers: React.FC = () => {
                     <div className="border-t bg-gray-50">
                       <div className="flex overflow-x-auto gap-3 p-3 scrollbar-hide">
                         {d.cars.map((car) => (
-                          <div key={car.id} className="min-w-[150px] rounded-lg overflow-hidden bg-white shadow-sm">
+                          <div
+                            key={car.id}
+                            className="min-w-[150px] rounded-lg overflow-hidden bg-white shadow-sm"
+                          >
                             {car.gallery?.[0] ? (
                               <img
                                 src={car.gallery[0]}

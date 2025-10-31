@@ -17,6 +17,7 @@ import {
   Edit,
   CheckCircle,
   XCircle,
+  Image as ImageIcon,
 } from "lucide-react";
 import { Dialog } from "@headlessui/react";
 
@@ -55,6 +56,7 @@ type Dealer = {
   email: string;
   phone?: string;
   created_at?: string;
+  company_logo?: string;
 };
 
 interface UploadProgress {
@@ -94,6 +96,7 @@ const AdminDashboard: React.FC = () => {
     totalRevenue: 0,
   });
 
+  // Car form state
   const [form, setForm] = useState<Partial<Car>>({
     make: "",
     model: "",
@@ -125,12 +128,18 @@ const AdminDashboard: React.FC = () => {
   const [lightboxImages, setLightboxImages] = useState<string[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
 
+  // Dealer creation state
   const [newDealer, setNewDealer] = useState({
     full_name: "",
     email: "",
     company_name: "",
     phone: "",
   });
+
+  // Dealer logo states (upload + preview)
+  const [dealerLogoFile, setDealerLogoFile] = useState<File | null>(null);
+  const [dealerLogoUrl, setDealerLogoUrl] = useState<string>("");
+  const [dealerLogoProgress, setDealerLogoProgress] = useState<number>(0);
 
   const [editCarId, setEditCarId] = useState<number | null>(null);
 
@@ -387,17 +396,53 @@ const AdminDashboard: React.FC = () => {
   };
 
   // Dealers
+  const handleDealerLogoSelect = async (file: File | null) => {
+    if (!file) return;
+    setDealerLogoFile(file);
+    setDealerLogoProgress(0);
+    try {
+      const url = await uploadWithProgress(file, "image", (p) => setDealerLogoProgress(p));
+      setDealerLogoUrl(url);
+      // keep preview and set url on newDealer when user submits
+    } catch (err: any) {
+      toast({
+        title: "Logo upload failed",
+        description: err?.message || "Upload failed",
+        variant: "destructive",
+      });
+      setDealerLogoFile(null);
+      setDealerLogoProgress(0);
+      setDealerLogoUrl("");
+    }
+  };
+
   const handleAddDealer = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!newDealer.full_name || !newDealer.email) {
+      toast({
+        title: "Missing fields",
+        description: "Please enter dealer name and email.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     try {
-      const payload = { ...newDealer };
+      const payload = {
+        ...newDealer,
+        company_logo: dealerLogoUrl || null,
+      };
       await axiosInstance.post("/dealers", payload);
       toast({ title: "Dealer added successfully" });
+
       setNewDealer({ full_name: "", email: "", company_name: "", phone: "" });
+      setDealerLogoFile(null);
+      setDealerLogoUrl("");
+      setDealerLogoProgress(0);
       fetchDashboardData();
     } catch (err: any) {
       toast({
-        title: "Error",
+        title: "Error adding dealer",
         description: err?.response?.data?.message || err.message || "An error occurred",
         variant: "destructive",
       });
@@ -597,6 +642,36 @@ const AdminDashboard: React.FC = () => {
             <Input placeholder="Email" value={newDealer.email} onChange={(e) => setNewDealer({ ...newDealer, email: e.target.value })} />
             <Input placeholder="Company" value={newDealer.company_name} onChange={(e) => setNewDealer({ ...newDealer, company_name: e.target.value })} />
             <Input placeholder="Phone" value={newDealer.phone} onChange={(e) => setNewDealer({ ...newDealer, phone: e.target.value })} />
+
+            {/* Dealer Logo Upload (integrated in Add Dealer form) */}
+            <div className="md:col-span-4 border-2 border-dashed rounded-lg p-4 text-center">
+              <label className="cursor-pointer inline-flex flex-col items-center w-full">
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0] ?? null;
+                    if (f) handleDealerLogoSelect(f);
+                  }}
+                />
+                <div className="flex flex-col items-center gap-2">
+                  <ImageIcon className="mx-auto text-gray-400" />
+                  <p className="text-sm text-gray-600">
+                    {dealerLogoFile ? `${dealerLogoFile.name} — ${dealerLogoProgress}%` : "Click to upload dealer logo (optional)"}
+                  </p>
+                  {dealerLogoProgress > 0 && dealerLogoProgress < 100 && (
+                    <div className="w-full bg-gray-100 rounded overflow-hidden mt-2">
+                      <div style={{ width: `${dealerLogoProgress}%` }} className="h-2 bg-blue-500" />
+                    </div>
+                  )}
+                  {dealerLogoUrl && (
+                    <img src={dealerLogoUrl} alt="Dealer logo" className="w-24 h-24 rounded-full object-cover mt-3 mx-auto" />
+                  )}
+                </div>
+              </label>
+            </div>
+
             <Button type="submit" className="md:col-span-4">
               <UserPlus className="w-4 h-4 mr-1" /> Add Dealer
             </Button>
@@ -607,9 +682,16 @@ const AdminDashboard: React.FC = () => {
           ) : (
             dealers.map((d) => (
               <div key={d.id} className="flex justify-between items-center border p-3 rounded mb-2">
-                <div>
-                  <p className="font-semibold">{d.full_name}</p>
-                  <p className="text-sm text-gray-500">{d.email}</p>
+                <div className="flex items-center gap-3">
+                  {d.company_logo ? (
+                    <img src={d.company_logo} alt="logo" className="w-10 h-10 rounded object-cover" />
+                  ) : (
+                    <div className="w-10 h-10 bg-gray-200 rounded" />
+                  )}
+                  <div>
+                    <p className="font-semibold">{d.full_name}</p>
+                    <p className="text-sm text-gray-500">{d.email}</p>
+                  </div>
                 </div>
                 <Button size="sm" variant="destructive" onClick={() => handleDeleteDealer(d.id)}>
                   <UserX className="w-4 h-4 mr-1" /> Remove
@@ -624,7 +706,9 @@ const AdminDashboard: React.FC = () => {
       <Dialog open={lightboxOpen} onClose={() => setLightboxOpen(false)}>
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
           <div className="relative max-w-4xl w-full p-4">
-            <img src={lightboxImages[currentIndex]} alt="Gallery" className="w-full rounded-lg" />
+            {lightboxImages[currentIndex] && (
+              <img src={lightboxImages[currentIndex]} alt="Gallery" className="w-full rounded-lg" />
+            )}
             <button className="absolute top-4 right-4 bg-white rounded-full px-3 py-2" onClick={() => setLightboxOpen(false)}>✕</button>
             {lightboxImages.length > 1 && (
               <>

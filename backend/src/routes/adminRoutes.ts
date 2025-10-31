@@ -11,6 +11,7 @@ import {
   addDealer,
   deleteDealer,
 } from "../controllers/adminController";
+import { createDealer } from "../controllers/adminDealerController";
 
 const router = express.Router();
 
@@ -22,6 +23,7 @@ router.delete("/cars/:id", deleteCar);
 router.patch("/cars/:id/featured", toggleFeatured);
 router.patch("/cars/:id/status", updateStatus);
 router.patch("/cars/:id/gallery", replaceGallery);
+
 
 // 👤 Dealer Routes
 router.get("/dealers", getAllDealers);

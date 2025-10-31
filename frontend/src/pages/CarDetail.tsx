@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
+import { Phone, Mail, MapPin } from "lucide-react";
 
 const formatPrice = (price: number) =>
   new Intl.NumberFormat("en-KE", {
@@ -27,10 +28,21 @@ type Car = {
   dealer_id?: string;
 };
 
+type Dealer = {
+  id: string;
+  full_name: string;
+  company_name?: string;
+  email?: string;
+  phone?: string;
+  country?: string;
+  company_logo?: string;
+};
+
 const CarDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
 
+  // 🧩 Fetch Car Info
   const {
     data: car,
     isLoading,
@@ -48,6 +60,22 @@ const CarDetail: React.FC = () => {
       return data as Car;
     },
     enabled: !!id,
+  });
+
+  // 🧩 Fetch Dealer Info if car found
+  const { data: dealer } = useQuery<Dealer | null>({
+    queryKey: ["dealer", car?.dealer_id],
+    queryFn: async () => {
+      if (!car?.dealer_id) return null;
+      const { data, error } = await supabase
+        .from("dealers")
+        .select("id, full_name, company_name, email, phone, country, company_logo")
+        .eq("id", car.dealer_id)
+        .single();
+      if (error) throw new Error(error.message);
+      return data as Dealer;
+    },
+    enabled: !!car?.dealer_id,
   });
 
   if (isLoading)
@@ -129,11 +157,73 @@ const CarDetail: React.FC = () => {
 
             {/* 📞 Sidebar Dealer Info */}
             <aside className="space-y-6">
+              {/* Dealer Information */}
+              {dealer && (
+                <div className="p-5 border rounded-lg bg-white shadow-sm">
+                  <h3 className="font-semibold text-lg mb-3 flex items-center gap-3">
+                    {/* 🧾 Dealer Logo */}
+                    {dealer.company_logo ? (
+                      <img
+                        src={dealer.company_logo}
+                        alt={`${dealer.full_name} logo`}
+                        className="w-10 h-10 object-cover rounded-full border"
+                      />
+                    ) : (
+                      <div className="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center text-xs text-gray-500">
+                        No Logo
+                      </div>
+                    )}
+                    <span>{dealer.full_name}</span>
+                  </h3>
+
+                  {dealer.company_name && (
+                    <p className="text-sm text-gray-600 mb-1">
+                      {dealer.company_name}
+                    </p>
+                  )}
+
+                  {dealer.country && (
+                    <p className="text-sm text-gray-600 flex items-center mb-1">
+                      <MapPin className="w-4 h-4 mr-1" /> {dealer.country}
+                    </p>
+                  )}
+
+                  <div className="flex flex-col gap-2 mt-4">
+                    {dealer.phone && (
+                      <>
+                        <a
+                          href={`https://wa.me/${dealer.phone.replace(/\s/g, "")}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="flex items-center justify-center gap-2 bg-green-600 text-white py-2 rounded hover:bg-green-700 transition"
+                        >
+                          WhatsApp Dealer
+                        </a>
+                        <a
+                          href={`tel:${dealer.phone}`}
+                          className="flex items-center justify-center gap-2 border py-2 rounded hover:bg-blue-50 transition"
+                        >
+                          <Phone className="w-4 h-4" /> Call Dealer
+                        </a>
+                      </>
+                    )}
+                    {dealer.email && (
+                      <a
+                        href={`mailto:${dealer.email}`}
+                        className="flex items-center justify-center gap-2 border py-2 rounded hover:bg-gray-50 transition"
+                      >
+                        <Mail className="w-4 h-4" /> Email Dealer
+                      </a>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* WhatsApp Contact for Car */}
               <div className="p-5 border rounded-lg bg-white shadow-sm">
-                <h3 className="font-semibold text-lg mb-2">Contact Dealer</h3>
+                <h3 className="font-semibold text-lg mb-2">Contact Seller</h3>
                 <p className="text-gray-700 mb-3">
-                  Interested in this car? Contact the dealer directly via
-                  WhatsApp.
+                  Interested in this car? Contact the seller directly on WhatsApp.
                 </p>
                 <a
                   href={whatsappUrl}
