@@ -1,6 +1,9 @@
 import { Request, Response } from "express";
 import { query, pool } from "../db";
-//import { v2 as cloudinary } from "cloudinary";
+import bcrypt from "bcryptjs";
+import { v4 as uuidv4 } from "uuid";
+import { sendMassEmail } from "./emailController";
+import { uploadLogoToR2 } from "../utils/cloudflareUpload";
 
 // 🚗 Fetch all cars with dealer info
 export const getAllCars = async (req: Request, res: Response) => {
@@ -189,20 +192,71 @@ export const replaceGallery = async (req: Request, res: Response) => {
 };
 
 // 👤 Add dealer
-export const addDealer = async (req: Request, res: Response) => {
+export const addDealer = async (req, res) => {
   try {
-    const { full_name, email, company_name, phone } = req.body;
-    const result = await query(
-      `INSERT INTO dealers (full_name, email, company_name, phone, created_at)
-       VALUES ($1,$2,$3,$4,NOW()) RETURNING *`,
-      [full_name, email, company_name, phone]
+    const { full_name, email, company_name, phone, country, logo } = req.body;
+
+    if (!full_name || !email || !company_name || !phone || !country) {
+      return res.status(400).json({ message: "All fields are required." });
+    }
+
+    // 1️⃣ Check if user already exists
+    const existing = await query("SELECT * FROM users WHERE email = $1", [email]);
+    if (existing.rows.length > 0) {
+      return res.status(400).json({ message: "Email already in use." });
+    }
+
+    // 2️⃣ Generate password
+    const defaultPassword = Math.random().toString(36).slice(-10);
+    const hashed = await bcrypt.hash(defaultPassword, 10);
+
+    // 3️⃣ Upload Logo (optional)
+    let logoUrl = null;
+    if (logo) {
+      logoUrl = await uploadLogoToR2(logo); // base64 from frontend
+    }
+
+    // 4️⃣ Create User entry
+    const userId = uuidv4();
+    await query(
+      `INSERT INTO users (id, full_name, email, password, role, is_verified, created_at)
+       VALUES ($1,$2,$3,$4,'dealer',true,NOW())`,
+      [userId, full_name, email, hashed]
     );
+
+    // 5️⃣ Create Dealer entry
+    const dealerId = uuidv4();
+    const dealerResult = await query(
+      `INSERT INTO dealers
+       (id, user_id, full_name, company_name, email, phone, country, logo, status, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'verified',NOW())
+       RETURNING *`,
+      [dealerId, userId, full_name, company_name, email, phone, country, logoUrl]
+    );
+
+    // 6️⃣ Compose email
+    const emailBody = `
+      Hello ${full_name},<br/><br/>
+      Your dealer account has been created.<br/><br/>
+
+      <b>Login Email:</b> ${email}<br/>
+      <b>Temporary Password:</b> ${defaultPassword}<br/><br/>
+
+      Please log in and change your password immediately.<br/><br/>
+      Thank you,<br/>
+      <b>Auto Directory Team</b>
+    `;
+
+    // 7️⃣ Send email
+    await sendMassEmail([email], "Your Dealer Account Login", emailBody);
+
+    // 8️⃣ Final Response
     res.status(201).json({
-      message: "✅ Dealer added successfully",
-      dealer: result.rows[0],
+      message: "Dealer created and login credentials sent.",
+      dealer: dealerResult.rows[0],
     });
-  } catch (err: any) {
-    console.error("❌ addDealer:", err.message);
+  } catch (err) {
+    console.error("❌ addDealer Error:", err);
     res.status(500).json({ error: err.message });
   }
 };

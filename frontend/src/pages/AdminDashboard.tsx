@@ -1,4 +1,3 @@
-// src/pages/AdminDashboard.tsx
 import React, { useEffect, useState } from "react";
 import axios from "axios";
 import { Card } from "@/components/ui/card";
@@ -89,6 +88,7 @@ const AdminDashboard: React.FC = () => {
   const [dealers, setDealers] = useState<Dealer[]>([]);
   const [loading, setLoading] = useState(false);
 
+
   const [stats, setStats] = useState({
     totalListings: 0,
     pendingApproval: 0,
@@ -119,6 +119,8 @@ const AdminDashboard: React.FC = () => {
   const [galleryProgress, setGalleryProgress] = useState<UploadProgress[]>([]);
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [videoProgress, setVideoProgress] = useState<UploadProgress | null>(null);
+  const [galleryPreview, setGalleryPreview] = useState<string[]>([]);
+
 
   const [locationQuery, setLocationQuery] = useState("");
   const [suggestions, setSuggestions] = useState<GeoapifyPlace[]>([]);
@@ -129,12 +131,17 @@ const AdminDashboard: React.FC = () => {
   const [currentIndex, setCurrentIndex] = useState(0);
 
   // Dealer creation state
-  const [newDealer, setNewDealer] = useState({
-    full_name: "",
-    email: "",
-    company_name: "",
-    phone: "",
-  });
+const [newDealer, setNewDealer] = useState({
+  full_name: "",
+  email: "",
+  company_name: "",
+  phone: "",
+  country: "",
+});
+
+// dealer logo file + base64 version
+const [dealerLogoBase64, setDealerLogoBase64] = useState<string | null>(null);
+const [dealerLogoPreview, setDealerLogoPreview] = useState<string | null>(null);
 
   // Dealer logo states (upload + preview)
   const [dealerLogoFile, setDealerLogoFile] = useState<File | null>(null);
@@ -303,7 +310,7 @@ const AdminDashboard: React.FC = () => {
         price: Number(form.price) || 0,
         year: Number(form.year) || 0,
         mileage: Number(form.mileage) || 0,
-        gallery: [...(form.gallery || []), ...galleryUrls],
+        gallery: [ ...(editCarId ? (form.gallery || []) : []), ...galleryUrls, ],
         video_url: videoUrl || "",
       };
 
@@ -396,58 +403,65 @@ const AdminDashboard: React.FC = () => {
   };
 
   // Dealers
-  const handleDealerLogoSelect = async (file: File | null) => {
-    if (!file) return;
-    setDealerLogoFile(file);
-    setDealerLogoProgress(0);
-    try {
-      const url = await uploadWithProgress(file, "image", (p) => setDealerLogoProgress(p));
-      setDealerLogoUrl(url);
-      // keep preview and set url on newDealer when user submits
-    } catch (err: any) {
-      toast({
-        title: "Logo upload failed",
-        description: err?.message || "Upload failed",
-        variant: "destructive",
-      });
-      setDealerLogoFile(null);
-      setDealerLogoProgress(0);
-      setDealerLogoUrl("");
-    }
+const handleDealerLogoSelect = async (file: File | null) => {
+  if (!file) return;
+
+  // Preview
+  const previewUrl = URL.createObjectURL(file);
+  setDealerLogoPreview(previewUrl);
+
+  // Convert to Base64
+  const reader = new FileReader();
+  reader.onloadend = () => {
+    setDealerLogoBase64(reader.result as string);
   };
+  reader.readAsDataURL(file);
+};
 
-  const handleAddDealer = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newDealer.full_name || !newDealer.email) {
-      toast({
-        title: "Missing fields",
-        description: "Please enter dealer name and email.",
-        variant: "destructive",
-      });
-      return;
-    }
 
-    try {
-      const payload = {
-        ...newDealer,
-        company_logo: dealerLogoUrl || null,
-      };
-      await axiosInstance.post("/dealers", payload);
-      toast({ title: "Dealer added successfully" });
+ const handleAddDealer = async (e: React.FormEvent) => {
+  e.preventDefault();
 
-      setNewDealer({ full_name: "", email: "", company_name: "", phone: "" });
-      setDealerLogoFile(null);
-      setDealerLogoUrl("");
-      setDealerLogoProgress(0);
-      fetchDashboardData();
-    } catch (err: any) {
-      toast({
-        title: "Error adding dealer",
-        description: err?.response?.data?.message || err.message || "An error occurred",
-        variant: "destructive",
-      });
-    }
-  };
+  if (!newDealer.full_name || !newDealer.email || !newDealer.country) {
+    toast({
+      title: "Missing fields",
+      description: "Enter full name, email and country.",
+      variant: "destructive",
+    });
+    return;
+  }
+
+  try {
+    const payload = {
+      ...newDealer,
+      logo: dealerLogoBase64, // base64 string → backend converts to R2 URL
+    };
+
+    await axiosInstance.post("/dealers", payload);
+
+    toast({ title: "Dealer created successfully" });
+
+    // Reset form
+    setNewDealer({
+      full_name: "",
+      email: "",
+      company_name: "",
+      phone: "",
+      country: "",
+    });
+    setDealerLogoBase64(null);
+    setDealerLogoPreview(null);
+
+    fetchDashboardData();
+  } catch (err: any) {
+    toast({
+      title: "Error creating dealer",
+      description: err?.response?.data?.message || err.message,
+      variant: "destructive",
+    });
+  }
+};
+
 
   const handleDeleteDealer = async (id: string) => {
     if (!confirm("Remove this dealer?")) return;
@@ -465,16 +479,28 @@ const AdminDashboard: React.FC = () => {
   };
 
   // When user clicks edit on a car: populate form
-  const startEditCar = (car: Car) => {
-    setEditCarId(car.id);
-    setForm({
-      ...car,
-      price: Number(car.price),
-      year: car.year,
-      mileage: Number(car.mileage),
-    });
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  };
+ const startEditCar = (car: Car) => {
+  setEditCarId(car.id);
+
+// Set full form state
+setForm({
+...car,
+price: Number(car.price),
+year: car.year,
+mileage: Number(car.mileage),
+gallery: car.gallery || [], // ensure array
+});
+
+// Show existing gallery images in preview
+setGalleryPreview(car.gallery || []);
+
+// Reset any previously selected files
+setGalleryFiles([]);
+
+// Smooth scroll to top for editing mode
+window.scrollTo({ top: 0, behavior: "smooth" });
+};
+
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -529,9 +555,28 @@ const AdminDashboard: React.FC = () => {
                   accept="image/*"
                   multiple
                   hidden
-                  onChange={(e) => setGalleryFiles(Array.from(e.target.files || []).slice(0, 8))}
+                  onChange={(e) => {
+                      const files = Array.from(e.target.files || []).slice(0, 8);
+                      setGalleryFiles(files);
+                         
+                      // generate local previews
+                      const previewUrls = files.map((file) => URL.createObjectURL(file));
+                      setGalleryPreview(previewUrls);
+                  }}
+
                 />
                 {/* progress rows */}
+                <div className="grid grid-cols-4 gap-3 mt-4">
+                    {galleryPreview.map((img, i) => (
+                      <img
+                       key={i}
+                       src={img}
+                       className="w-full h-24 object-cover rounded cursor-pointer border"
+                       onClick={() => openLightbox(galleryPreview)}
+                      />
+                    ))}
+                  </div>
+
                 <div className="mt-3 space-y-2">
                   {galleryProgress.map((p) => (
                     <div key={p.fileName} className="text-sm">
@@ -597,7 +642,7 @@ const AdminDashboard: React.FC = () => {
             cars.map((car) => (
               <div key={car.id} className="flex justify-between items-center border p-3 rounded mb-2">
                 <div className="flex gap-4 items-center">
-                  {car.gallery?.length ? (
+                  {Array.isArray(car.gallery) && car.gallery.length > 0 ? (
                     <img src={car.gallery[0]} alt={car.make} className="w-24 h-16 object-cover rounded cursor-pointer" onClick={() => openLightbox(car.gallery!)} />
                   ) : (
                     <div className="w-24 h-16 bg-gray-200 flex items-center justify-center">No Image</div>
@@ -636,46 +681,87 @@ const AdminDashboard: React.FC = () => {
 
         {/* Dealers */}
         <Card className="p-6">
-          <h2 className="text-2xl font-bold mb-6">Dealers</h2>
-          <form onSubmit={handleAddDealer} className="grid md:grid-cols-4 gap-4 mb-6">
-            <Input placeholder="Full Name" value={newDealer.full_name} onChange={(e) => setNewDealer({ ...newDealer, full_name: e.target.value })} />
-            <Input placeholder="Email" value={newDealer.email} onChange={(e) => setNewDealer({ ...newDealer, email: e.target.value })} />
-            <Input placeholder="Company" value={newDealer.company_name} onChange={(e) => setNewDealer({ ...newDealer, company_name: e.target.value })} />
-            <Input placeholder="Phone" value={newDealer.phone} onChange={(e) => setNewDealer({ ...newDealer, phone: e.target.value })} />
+  <h2 className="text-2xl font-bold mb-4 flex items-center gap-2">
+    <UserPlus /> Add Dealer
+  </h2>
 
-            {/* Dealer Logo Upload (integrated in Add Dealer form) */}
-            <div className="md:col-span-4 border-2 border-dashed rounded-lg p-4 text-center">
-              <label className="cursor-pointer inline-flex flex-col items-center w-full">
-                <input
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={(e) => {
-                    const f = e.target.files?.[0] ?? null;
-                    if (f) handleDealerLogoSelect(f);
-                  }}
-                />
-                <div className="flex flex-col items-center gap-2">
-                  <ImageIcon className="mx-auto text-gray-400" />
-                  <p className="text-sm text-gray-600">
-                    {dealerLogoFile ? `${dealerLogoFile.name} — ${dealerLogoProgress}%` : "Click to upload dealer logo (optional)"}
-                  </p>
-                  {dealerLogoProgress > 0 && dealerLogoProgress < 100 && (
-                    <div className="w-full bg-gray-100 rounded overflow-hidden mt-2">
-                      <div style={{ width: `${dealerLogoProgress}%` }} className="h-2 bg-blue-500" />
-                    </div>
-                  )}
-                  {dealerLogoUrl && (
-                    <img src={dealerLogoUrl} alt="Dealer logo" className="w-24 h-24 rounded-full object-cover mt-3 mx-auto" />
-                  )}
-                </div>
-              </label>
-            </div>
+  <form onSubmit={handleAddDealer} className="space-y-4">
+    <div className="grid md:grid-cols-2 gap-4">
+      <div>
+        <Label>Full Name</Label>
+        <Input
+          value={newDealer.full_name}
+          onChange={(e) => setNewDealer({ ...newDealer, full_name: e.target.value })}
+        />
+      </div>
 
-            <Button type="submit" className="md:col-span-4">
-              <UserPlus className="w-4 h-4 mr-1" /> Add Dealer
-            </Button>
-          </form>
+      <div>
+        <Label>Email</Label>
+        <Input
+          value={newDealer.email}
+          onChange={(e) => setNewDealer({ ...newDealer, email: e.target.value })}
+        />
+      </div>
+
+      <div>
+        <Label>Company Name</Label>
+        <Input
+          value={newDealer.company_name}
+          onChange={(e) => setNewDealer({ ...newDealer, company_name: e.target.value })}
+        />
+      </div>
+
+      <div>
+        <Label>Phone</Label>
+        <Input
+          value={newDealer.phone}
+          onChange={(e) => setNewDealer({ ...newDealer, phone: e.target.value })}
+        />
+      </div>
+
+      <div>
+        <Label>Country</Label>
+        <Input
+          value={newDealer.country}
+          onChange={(e) => setNewDealer({ ...newDealer, country: e.target.value })}
+        />
+      </div>
+    </div>
+
+    {/* Logo uploader */}
+    <div>
+      <Label>Upload Dealer Logo</Label>
+
+      <div
+        className="border-2 border-dashed rounded-lg p-4 text-center cursor-pointer"
+        onClick={() => document.getElementById("dealer-logo-input")?.click()}
+      >
+        {dealerLogoPreview ? (
+          <img
+            src={dealerLogoPreview}
+            className="w-32 h-32 mx-auto object-cover rounded"
+          />
+        ) : (
+          <div className="text-gray-400 flex flex-col items-center">
+            <ImageIcon className="w-10 h-10" />
+            <p>Click to upload logo</p>
+          </div>
+        )}
+
+        <input
+          id="dealer-logo-input"
+          type="file"
+          accept="image/*"
+          hidden
+          onChange={(e) => handleDealerLogoSelect(e.target.files?.[0] || null)}
+        />
+      </div>
+    </div>
+
+    <Button type="submit">Add Dealer</Button>
+  </form>
+
+
 
           {dealers.length === 0 ? (
             <p>No dealers found.</p>
