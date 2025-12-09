@@ -1,9 +1,14 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  ReactNode,
+} from "react";
 import { User, Session } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "react-toastify";
 import { apiRequest } from "@/utils/apiClient";
-
 const API_BASE_URL = import.meta.env.VITE_BACKEND_URL;
 
 interface SignInResponse {
@@ -51,7 +56,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // 🔹 Fetch authenticated user from backend
+  // -------------------------------------------------------------------------
+  // Fetch user from backend (JWT)
+  // -------------------------------------------------------------------------
   const fetchUser = async (): Promise<void> => {
     try {
       const token = localStorage.getItem("auth_token");
@@ -65,36 +72,48 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       if (!res.ok) throw new Error("Failed to fetch user info");
 
       const data: { user: User } = await res.json();
-      if (data?.user) {
-        setUser(data.user);
-      }
+      setUser(data?.user ?? null);
     } catch (err) {
-      console.error("Failed to fetch user:", err);
+      console.error("❌ Failed to fetch user:", err);
       setUser(null);
     }
   };
 
-  // 🔹 Initialize authentication on app load
+  // -------------------------------------------------------------------------
+  // Initialize Authentication
+  // -------------------------------------------------------------------------
   useEffect(() => {
     const initializeAuth = async () => {
-      const token = localStorage.getItem("auth_token");
+      try {
+        const token = localStorage.getItem("auth_token");
 
-      if (token) {
-        await fetchUser();
-      } else {
-        // fallback to Supabase session (if used)
-        const { data } = await supabase.auth.getSession();
-        setSession(data.session);
-        setUser(data.session?.user ?? null);
+        if (token) {
+          await fetchUser();
+        } else {
+          const { data } = await supabase.auth.getSession();
+          setSession(data.session);
+          setUser(data.session?.user ?? null);
+        }
+      } finally {
+        setIsLoading(false);
       }
-
-      setIsLoading(false);
     };
 
     initializeAuth();
+
+    const { data: listener } = supabase.auth.onAuthStateChange(
+      (_event, session) => {
+        setSession(session);
+        setUser(session?.user ?? null);
+      }
+    );
+
+    return () => listener.subscription.unsubscribe();
   }, []);
 
-  // ✅ Sign Up
+  // -------------------------------------------------------------------------
+  // SIGN UP
+  // -------------------------------------------------------------------------
   const signUp = async (
     email: string,
     password: string,
@@ -108,10 +127,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         body: JSON.stringify({ email, password, fullName, phone }),
       });
 
-      const data: { message?: string; error?: string } = await res.json();
+      const data = await res.json();
+
       if (!res.ok) return { success: false, error: data.error };
 
-      toast.success(data.message || "Account created! Verify your email.");
+      toast.success(data.message || "Account created! Check your email.");
       return { success: true, message: data.message };
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error";
@@ -120,8 +140,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  // ✅ Sign In
-  const signIn = async (email: string, password: string): Promise<SignInResponse> => {
+  // -------------------------------------------------------------------------
+  // SIGN IN
+  // -------------------------------------------------------------------------
+  const signIn = async (
+    email: string,
+    password: string
+  ): Promise<SignInResponse> => {
     try {
       const res = await fetch(`${API_BASE_URL}/auth/login`, {
         method: "POST",
@@ -129,25 +154,17 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         body: JSON.stringify({ email, password }),
       });
 
-      const data: {
-        error?: string;
-        message?: string;
-        token?: string;
-        user?: User;
-        session?: Session;
-      } = await res.json();
+      const data = await res.json();
 
       if (!res.ok) {
         const errorMessage =
           data.error ||
           (res.status === 400
-            ? "Invalid request. Please check your input."
+            ? "Invalid request."
             : res.status === 401
-            ? "Unauthorized. Incorrect email or password."
+            ? "Incorrect email or password."
             : res.status === 404
             ? "User not found."
-            : res.status >= 500
-            ? "Server error. Try again later."
             : "Unexpected error.");
 
         toast.error(errorMessage);
@@ -155,25 +172,28 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       }
 
       if (data.token) localStorage.setItem("auth_token", data.token);
+
       setUser(data.user ?? null);
       setSession(data.session ?? null);
 
       toast.success("Login successful!");
       return { success: true, status: res.status, message: "Login successful!" };
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Network or unexpected error.";
-      console.error("⚠️ Login request failed:", err);
+      const message =
+        err instanceof Error ? err.message : "Network or unexpected error.";
       toast.error(message);
       return { success: false, status: 0, error: message };
     }
   };
 
-  // ✅ Sign Out
+  // -------------------------------------------------------------------------
+  // SIGN OUT (NO EMPTY CATCH BLOCK)
+  // -------------------------------------------------------------------------
   const signOut = async (): Promise<void> => {
     try {
       await supabase.auth.signOut();
     } catch (err) {
-      console.warn("Supabase sign-out skipped:", err);
+      console.warn("Supabase signOut failed:", err);
     }
 
     await fetch(`${API_BASE_URL}/auth/logout`, {
@@ -184,25 +204,36 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     localStorage.removeItem("auth_token");
     setUser(null);
     setSession(null);
+
     toast.info("Logged out successfully");
   };
 
-  // ✅ Verify Email
+  // -------------------------------------------------------------------------
+  // VERIFY EMAIL
+  // -------------------------------------------------------------------------
   const verifyEmailStatus = async (token: string): Promise<boolean> => {
     try {
       const data = await apiRequest("/auth/verify-email", {
         headers: { Authorization: `Bearer ${token}` },
       });
+
       return Boolean(data?.verified);
-    } catch (err) {
-      console.error("verifyEmailStatus request failed:", err);
+    } catch {
       return false;
     }
   };
 
   return (
     <AuthContext.Provider
-      value={{ user, session, isLoading, signUp, signIn, signOut, verifyEmailStatus }}
+      value={{
+        user,
+        session,
+        isLoading,
+        signUp,
+        signIn,
+        signOut,
+        verifyEmailStatus,
+      }}
     >
       {children}
     </AuthContext.Provider>

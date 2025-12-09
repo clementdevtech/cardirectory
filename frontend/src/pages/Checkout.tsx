@@ -17,7 +17,7 @@ interface ApiResponse {
 const Checkout: React.FC = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, isLoading } = useAuth(); // ✅ include isLoading
 
   const selectedPlan = searchParams.get("plan") || "free";
   const billing = searchParams.get("billing") || "monthly";
@@ -27,70 +27,58 @@ const Checkout: React.FC = () => {
   const [phone, setPhone] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // --------------------------------------------------------------------------
-  // 🎯 PRICE CALCULATOR (Dynamic)
-  // --------------------------------------------------------------------------
   const calculateFinalAmount = () => {
     let price = baseAmount;
-
-    // Apply yearly billing (20% off)
-    if (billing === "yearly") {
-      price = price * 12 * 0.8;
-    }
-
-    // Apply coupon discount
-    if (discount > 0) {
-      price = price - price * (discount / 100);
-    }
-
+    if (billing === "yearly") price = price * 12 * 0.8;
+    if (discount > 0) price = price - price * (discount / 100);
     return Math.round(price);
   };
 
   const amount = selectedPlan === "free" ? 0 : calculateFinalAmount();
 
-  // --------------------------------------------------------------------------
-  // 📞 Kenyan Phone Validation
-  // --------------------------------------------------------------------------
-  const validatePhoneNumber = (phoneNumber: string): boolean => {
+  const validatePhoneNumber = (phoneNumber: string) => {
     const pattern = /^(?:\+?254|0)?7\d{8}$/;
     return pattern.test(phoneNumber.trim());
   };
 
   // --------------------------------------------------------------------------
-  // 🎁 Free Trial activate logic
+  // Protect route: redirect to login only if not loading and no user
+  // --------------------------------------------------------------------------
+  useEffect(() => {
+    if (!isLoading && !user) {
+      toast.error("You must be logged in to access checkout.");
+      navigate("/login");
+    }
+  }, [user, isLoading, navigate]);
+
+  // --------------------------------------------------------------------------
+  // Free trial
   // --------------------------------------------------------------------------
   const handleFreeTrial = async (user: { id: string; email: string }) => {
     try {
       const now = new Date();
-
       const { data: existingUser, error: fetchError } = await supabase
         .from("users")
         .select("trial_end, role")
         .eq("id", user.id)
         .single();
-
       if (fetchError) throw fetchError;
 
       const trialEnd = existingUser?.trial_end ? new Date(existingUser.trial_end) : null;
 
-      // Active trial check
       if (trialEnd && trialEnd > now) {
-        const daysLeft = Math.ceil(
-          (trialEnd.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)
-        );
+        const daysLeft = Math.ceil((trialEnd.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
         toast.info(`You already have a trial (${daysLeft} days left).`);
         navigate("/dealer");
         return;
       }
 
-      // Already dealer
       if (existingUser?.role === "dealer") {
         toast.info("You’re already a dealer.");
         navigate("/dealer");
         return;
       }
 
-      // Activate trial
       const res = await fetch(`${API_BASE_URL}/payments/activate-trial`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -98,7 +86,6 @@ const Checkout: React.FC = () => {
       });
 
       const data = await res.json();
-
       if (!data.success) {
         toast.error(data.error || "Could not activate trial");
         return;
@@ -113,15 +100,11 @@ const Checkout: React.FC = () => {
   };
 
   // --------------------------------------------------------------------------
-  // 💳 Paid Payment Handler
+  // Paid payment
   // --------------------------------------------------------------------------
   const handlePayment = async () => {
-    if (!user) {
-      toast.error("You must be logged in to continue.");
-      return;
-    }
+    if (!user) return; // Already guarded by useEffect
 
-    // Free plan
     if (selectedPlan === "free") {
       setLoading(true);
       await handleFreeTrial({ id: user.id, email: user.email });
@@ -129,7 +112,6 @@ const Checkout: React.FC = () => {
       return;
     }
 
-    // Validate phone
     if (!phone) {
       toast.error("Enter your phone number.");
       return;
@@ -146,14 +128,7 @@ const Checkout: React.FC = () => {
       const response = await fetch(`${API_BASE_URL}/payments/pesapal/create`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          user_id: user.id,
-          plan: selectedPlan,
-          billing,
-          discount,
-          amount,
-          phone,
-        }),
+        body: JSON.stringify({ user_id: user.id, plan: selectedPlan, billing, discount, amount, phone }),
       });
 
       const data: ApiResponse = await response.json();
@@ -162,31 +137,19 @@ const Checkout: React.FC = () => {
       toast.success("Check your phone to approve payment…");
 
       setTimeout(async () => {
-        // 🔗 Redirect to Pesapal hosted checkout
         if (data.payment_link) {
           window.location.href = data.payment_link;
           return;
         }
 
-        // 🚘 Save pending car if exists
         const pendingCar = localStorage.getItem("pendingCar");
-
         if (pendingCar) {
           const car = JSON.parse(pendingCar);
-
-          const saveResponse = await fetch(
-            `${API_BASE_URL}/cars/submit-after-payment`,
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                user_id: user.id,
-                ...car,
-                plan: selectedPlan,
-                billing,
-              }),
-            }
-          );
+          const saveResponse = await fetch(`${API_BASE_URL}/cars/submit-after-payment`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ user_id: user.id, ...car, plan: selectedPlan, billing }),
+          });
 
           const result = await saveResponse.json();
           if (result.success) {
@@ -202,51 +165,42 @@ const Checkout: React.FC = () => {
       }, 1500);
     } catch (error) {
       console.error("Payment error:", error);
-      toast.error(
-        error instanceof Error ? error.message : "Payment initiation failed"
-      );
+      toast.error(error instanceof Error ? error.message : "Payment initiation failed");
     } finally {
       setLoading(false);
     }
   };
 
   // --------------------------------------------------------------------------
+  // Loader while checking auth
+  // --------------------------------------------------------------------------
+  if (isLoading) {
+    return (
+      <div className="flex justify-center items-center h-screen">
+        <p>Loading...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
       <Navbar />
-
       <main className="flex-1 py-10">
         <div className="container mx-auto max-w-md px-4">
-          <h1 className="text-2xl font-bold mb-2">
-            Checkout — {selectedPlan.toUpperCase()}
-          </h1>
-
+          <h1 className="text-2xl font-bold mb-2">Checkout — {selectedPlan.toUpperCase()}</h1>
           <p className="text-gray-600 mb-8">
             Total Amount:{" "}
             <span className="font-semibold text-gray-900">
-              {selectedPlan === "free"
-                ? "Free Trial (7 days)"
-                : `KES ${amount}`}
+              {selectedPlan === "free" ? "Free Trial (7 days)" : `KES ${amount}`}
             </span>
-            {discount > 0 && (
-              <span className="text-green-600 text-sm ml-2">
-                (-{discount}% coupon)
-              </span>
-            )}
-            {billing === "yearly" && selectedPlan !== "free" && (
-              <span className="text-blue-600 text-sm ml-2">
-                (Yearly billing discount applied)
-              </span>
-            )}
+            {discount > 0 && <span className="text-green-600 text-sm ml-2">(-{discount}% coupon)</span>}
+            {billing === "yearly" && selectedPlan !== "free" && <span className="text-blue-600 text-sm ml-2">(Yearly billing discount applied)</span>}
           </p>
 
           <div className="bg-white p-6 rounded-xl shadow-md border">
             {selectedPlan !== "free" && (
               <>
-                <label className="block mb-2 text-sm font-medium text-gray-700">
-                  Mobile Number (e.g. 07XXXXXXXX)
-                </label>
+                <label className="block mb-2 text-sm font-medium text-gray-700">Mobile Number (e.g. 07XXXXXXXX)</label>
                 <input
                   type="tel"
                   value={phone}
@@ -262,16 +216,11 @@ const Checkout: React.FC = () => {
               disabled={loading}
               className="w-full bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 disabled:opacity-50"
             >
-              {loading
-                ? "Processing..."
-                : selectedPlan === "free"
-                ? "Start Free Trial"
-                : `Pay KES ${amount}`}
+              {loading ? "Processing..." : selectedPlan === "free" ? "Start Free Trial" : `Pay KES ${amount}`}
             </button>
           </div>
         </div>
       </main>
-
       <Footer />
     </div>
   );
