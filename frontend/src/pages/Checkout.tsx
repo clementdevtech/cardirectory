@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import { useSearchParams, useNavigate } from "react-router-dom";
@@ -17,203 +17,235 @@ interface ApiResponse {
 const Checkout: React.FC = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const { user } = useAuth();
+
   const selectedPlan = searchParams.get("plan") || "free";
+  const billing = searchParams.get("billing") || "monthly";
+  const discount = Number(searchParams.get("discount") || 0);
+  const baseAmount = Number(searchParams.get("amount") || 0);
 
   const [phone, setPhone] = useState("");
   const [loading, setLoading] = useState(false);
-  const { user } = useAuth();
-  //console.log(user);
 
-  // 💰 Plan pricing
-  const amount =
-    selectedPlan === "free"
-      ? 0
-      : selectedPlan === "standard"
-      ? 500
-      : selectedPlan === "premium"
-      ? 1500
-      : 0;
+  // --------------------------------------------------------------------------
+  // 🎯 PRICE CALCULATOR (Dynamic)
+  // --------------------------------------------------------------------------
+  const calculateFinalAmount = () => {
+    let price = baseAmount;
 
-  // ✅ Validate Kenyan phone number format
+    // Apply yearly billing (20% off)
+    if (billing === "yearly") {
+      price = price * 12 * 0.8;
+    }
+
+    // Apply coupon discount
+    if (discount > 0) {
+      price = price - price * (discount / 100);
+    }
+
+    return Math.round(price);
+  };
+
+  const amount = selectedPlan === "free" ? 0 : calculateFinalAmount();
+
+  // --------------------------------------------------------------------------
+  // 📞 Kenyan Phone Validation
+  // --------------------------------------------------------------------------
   const validatePhoneNumber = (phoneNumber: string): boolean => {
     const pattern = /^(?:\+?254|0)?7\d{8}$/;
     return pattern.test(phoneNumber.trim());
   };
 
-  // 🕐 Handle Free Trial Logic (with active trial check)
-const handleFreeTrial = async (user: { id: string; email: string }) => {
-  try {
-    // ✅ First check user status locally
-    const now = new Date();
-    const { data: existingUser, error: fetchError } = await supabase
-      .from("users")
-      .select("trial_end, role")
-      .eq("id", user.id)
-      .single();
+  // --------------------------------------------------------------------------
+  // 🎁 Free Trial activate logic
+  // --------------------------------------------------------------------------
+  const handleFreeTrial = async (user: { id: string; email: string }) => {
+    try {
+      const now = new Date();
 
-    if (fetchError) throw fetchError;
+      const { data: existingUser, error: fetchError } = await supabase
+        .from("users")
+        .select("trial_end, role")
+        .eq("id", user.id)
+        .single();
 
-    const trialEnd = existingUser?.trial_end ? new Date(existingUser.trial_end) : null;
+      if (fetchError) throw fetchError;
 
-    // ✅ If trial still active
-    if (trialEnd && trialEnd > now) {
-      const daysLeft = Math.ceil(
-        (trialEnd.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)
-      );
-      toast.info(`✅ You already have a trial (${daysLeft} days left).`);
-      navigate("/dealer");
-      return;
-    }
+      const trialEnd = existingUser?.trial_end ? new Date(existingUser.trial_end) : null;
 
-    // ✅ If already a dealer with no trial
-    if (existingUser?.role === "dealer") {
-      toast.info("You’re already a dealer 🎯");
-      navigate("/dealer");
-      return;
-    }
+      // Active trial check
+      if (trialEnd && trialEnd > now) {
+        const daysLeft = Math.ceil(
+          (trialEnd.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)
+        );
+        toast.info(`You already have a trial (${daysLeft} days left).`);
+        navigate("/dealer");
+        return;
+      }
 
-    // ✅ Call backend to activate trial
-    const token = localStorage.getItem("token");
-    const res = await fetch(`${API_BASE_URL}/payments/activate-trial`, {
+      // Already dealer
+      if (existingUser?.role === "dealer") {
+        toast.info("You’re already a dealer.");
+        navigate("/dealer");
+        return;
+      }
+
+      // Activate trial
+      const res = await fetch(`${API_BASE_URL}/payments/activate-trial`, {
         method: "POST",
-  headers: {
-    "Content-Type": "application/json",
-  },
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: user.id, email: user.email }),
+      });
 
-      body: JSON.stringify({ user_id: user.id, email: user.email }),
-    });
+      const data = await res.json();
 
-    const data = await res.json();
+      if (!data.success) {
+        toast.error(data.error || "Could not activate trial");
+        return;
+      }
 
-    if (!data.success) {
-      toast.error(data.error || "Could not activate trial");
+      toast.success("🎉 Your free trial has started!");
+      navigate("/dealer");
+    } catch (err) {
+      console.error("Trial error:", err);
+      toast.error("Something went wrong starting your trial.");
+    }
+  };
+
+  // --------------------------------------------------------------------------
+  // 💳 Paid Payment Handler
+  // --------------------------------------------------------------------------
+  const handlePayment = async () => {
+    if (!user) {
+      toast.error("You must be logged in to continue.");
       return;
     }
 
-    toast.success("🎉 Your 7-day free trial has started!");
-    navigate("/dealer");
-  } catch (err) {
-    console.error("Free trial error:", err);
-    toast.error("❌ Something went wrong starting your trial");
-  }
-};
+    // Free plan
+    if (selectedPlan === "free") {
+      setLoading(true);
+      await handleFreeTrial({ id: user.id, email: user.email });
+      setLoading(false);
+      return;
+    }
 
+    // Validate phone
+    if (!phone) {
+      toast.error("Enter your phone number.");
+      return;
+    }
 
-// 💳 Handle payment for paid plans
-const handlePayment = async (): Promise<void> => {
-  if (!user) {
-    toast.error("You must be logged in to continue.");
-    return;
-  }
-
-  // 👉 Free plan (7-day trial)
-  if (selectedPlan === "free") {
-    if (!user?.id || !user?.email) {
-      toast.error("User data missing. Please log in again.");
+    if (!validatePhoneNumber(phone)) {
+      toast.error("Invalid phone. Use 07XXXXXXXX or +2547XXXXXXXX.");
       return;
     }
 
     setLoading(true);
-    await handleFreeTrial({ id: user.id, email: user.email });
-    setLoading(false);
-    return;
-  }
 
-  // 👉 Paid plans (standard / premium)
-  if (!phone) {
-    toast.error("Please enter your phone number");
-    return;
-  }
+    try {
+      const response = await fetch(`${API_BASE_URL}/payments/pesapal/create`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: user.id,
+          plan: selectedPlan,
+          billing,
+          discount,
+          amount,
+          phone,
+        }),
+      });
 
-  if (!validatePhoneNumber(phone)) {
-    toast.error("Invalid phone number format. Use 07XXXXXXXX or +2547XXXXXXXX");
-    return;
-  }
+      const data: ApiResponse = await response.json();
+      if (!response.ok) throw new Error(data.error || "Payment failed");
 
-  setLoading(true);
-  try {
-    const response = await fetch(`${API_BASE_URL}/payments/pesapal/create`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        user_id: user.id,
-        plan: selectedPlan,
-        amount,
-        phone,
-      }),
-    });
+      toast.success("Check your phone to approve payment…");
 
-    const data: ApiResponse = await response.json();
-    if (!response.ok) throw new Error(data.error || "Payment failed");
+      setTimeout(async () => {
+        // 🔗 Redirect to Pesapal hosted checkout
+        if (data.payment_link) {
+          window.location.href = data.payment_link;
+          return;
+        }
 
-    toast.success("Payment initiated! Please check your phone to approve.");
-
-    setTimeout(async () => {
-      if (data.payment_link) {
-        // Redirect to Pesapal checkout page
-        window.location.href = data.payment_link;
-      } else {
-        // ✅ If payment is successful and link not required, save vehicle
+        // 🚘 Save pending car if exists
         const pendingCar = localStorage.getItem("pendingCar");
+
         if (pendingCar) {
           const car = JSON.parse(pendingCar);
-          try {
-            const saveResponse = await fetch(`${API_BASE_URL}/cars/submit-after-payment`, {
+
+          const saveResponse = await fetch(
+            `${API_BASE_URL}/cars/submit-after-payment`,
+            {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 user_id: user.id,
                 ...car,
                 plan: selectedPlan,
+                billing,
               }),
-            });
-
-            const result = await saveResponse.json();
-            if (result.success) {
-              toast.success("🚗 Your vehicle is now live!");
-              localStorage.removeItem("pendingCar");
-              navigate("/dealer");
-            } else {
-              toast.error(result.error || "Could not save vehicle.");
             }
-          } catch (err) {
-            console.error("Car save error:", err);
-            toast.error("Error saving vehicle after payment.");
+          );
+
+          const result = await saveResponse.json();
+          if (result.success) {
+            toast.success("🚗 Your vehicle is now live!");
+            localStorage.removeItem("pendingCar");
+            navigate("/dealer");
+          } else {
+            toast.error(result.error || "Could not save vehicle.");
           }
         } else {
           navigate("/dealer");
         }
-      }
-    }, 1500);
-  } catch (error) {
-    console.error("Payment initiation error:", error);
-    toast.error(error instanceof Error ? error.message : "Payment initiation failed");
-  } finally {
-    setLoading(false);
-  }
-};
+      }, 1500);
+    } catch (error) {
+      console.error("Payment error:", error);
+      toast.error(
+        error instanceof Error ? error.message : "Payment initiation failed"
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
 
+  // --------------------------------------------------------------------------
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
       <Navbar />
+
       <main className="flex-1 py-10">
         <div className="container mx-auto max-w-md px-4">
           <h1 className="text-2xl font-bold mb-2">
-            Checkout — {selectedPlan.charAt(0).toUpperCase() + selectedPlan.slice(1)} Plan
+            Checkout — {selectedPlan.toUpperCase()}
           </h1>
+
           <p className="text-gray-600 mb-8">
             Total Amount:{" "}
             <span className="font-semibold text-gray-900">
-              {selectedPlan === "free" ? "Free Trial (7 days)" : `KES ${amount}`}
+              {selectedPlan === "free"
+                ? "Free Trial (7 days)"
+                : `KES ${amount}`}
             </span>
+            {discount > 0 && (
+              <span className="text-green-600 text-sm ml-2">
+                (-{discount}% coupon)
+              </span>
+            )}
+            {billing === "yearly" && selectedPlan !== "free" && (
+              <span className="text-blue-600 text-sm ml-2">
+                (Yearly billing discount applied)
+              </span>
+            )}
           </p>
 
           <div className="bg-white p-6 rounded-xl shadow-md border">
             {selectedPlan !== "free" && (
               <>
                 <label className="block mb-2 text-sm font-medium text-gray-700">
-                  Enter your mobile number (e.g. 07XXXXXXXX)
+                  Mobile Number (e.g. 07XXXXXXXX)
                 </label>
                 <input
                   type="tel"
@@ -239,6 +271,7 @@ const handlePayment = async (): Promise<void> => {
           </div>
         </div>
       </main>
+
       <Footer />
     </div>
   );
