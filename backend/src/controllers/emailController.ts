@@ -17,8 +17,8 @@ console.log("Email Pass:", EMAIL_PASS ? "✅ Loaded" : "❌ Missing");
 // ✅ Setup transporter
 const transporter = nodemailer.createTransport({
   host: "smtp.zoho.com",
-  port: 465,
-  secure: true,
+  port: 587,
+  secure: false,
   auth: {
     user: EMAIL_USER,
     pass: EMAIL_PASS,
