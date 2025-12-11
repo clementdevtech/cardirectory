@@ -1,41 +1,152 @@
+import axios from "axios";
 import { query } from "../db";
-import nodemailer from "nodemailer";
 import dotenv from "dotenv";
-
 dotenv.config();
 
-/* ----------------------------------------------------------
-   ENVIRONMENT VARIABLES
------------------------------------------------------------ */
+/* ENV */
 const FRONTEND_URL = process.env.FRONTEND_URL;
-const EMAIL_USER = process.env.EMAIL_USER;
-const EMAIL_PASS = process.env.EMAIL_PASS;
 const BRAND_LOGO = process.env.BRAND_LOGO;
 const BRAND_NAME = process.env.BRAND_NAME || "CarDirectory";
 const BRAND_COLOR = "#533737ff";
 
-/* ----------------------------------------------------------
-   LOG ENV STATUS
------------------------------------------------------------ */
-console.log("Email User:", EMAIL_USER ? "✅ Loaded" : "❌ Missing");
-console.log("Email Pass:", EMAIL_PASS ? "✅ Loaded" : "❌ Missing");
+const {
+  ZOHO_CLIENT_ID,
+  ZOHO_CLIENT_SECRET,
+  ZOHO_REFRESH_TOKEN,
+  ZOHO_FROM,
+  ZOHO_ACCOUNTS_HOST,
+  ZOHO_MAIL_HOST,
+} = process.env;
 
-/* ----------------------------------------------------------
-   ZOHO SMTP TRANSPORTER
------------------------------------------------------------ */
-const transporter = nodemailer.createTransport({
-  host: "smtp.zoho.com",
-  port: 465,
-  secure: true,
-  auth: {
-    user: EMAIL_USER,
-    pass: EMAIL_PASS,
-  },
+console.log("🚀 Zoho Mail Config:", {
+  ZOHO_CLIENT_ID,
+  ZOHO_CLIENT_SECRET,
+  ZOHO_REFRESH_TOKEN,
+  ZOHO_FROM,
+  ZOHO_ACCOUNTS_HOST,
+  ZOHO_MAIL_HOST,
 });
 
-/* ----------------------------------------------------------
-   CUSTOM EMAIL TEMPLATE (Dark/Light Mode Support)
------------------------------------------------------------ */
+/* ------------------------------------------------------------
+   Zoho Endpoints
+------------------------------------------------------------- */
+const ZOHO_AUTH_URL = `${ZOHO_ACCOUNTS_HOST}/oauth/v2/token`;
+
+// Cache
+let cachedToken: string | null = null;
+let cachedAccountId: string | null = null;
+
+/* ------------------------------------------------------------
+   Safe JSON for axios
+------------------------------------------------------------- */
+const safeJson = (data: any) => {
+  try {
+    return typeof data === "string" ? JSON.parse(data) : data;
+  } catch {
+    return { raw: data };
+  }
+};
+
+/* ------------------------------------------------------------
+   GET ACCESS TOKEN
+------------------------------------------------------------- */
+const getZohoAccessToken = async (): Promise<string> => {
+  console.log("Fetching Zoho access token...");
+  if (cachedToken) return cachedToken;
+
+  try {
+    const params = new URLSearchParams({
+      refresh_token: ZOHO_REFRESH_TOKEN!,
+      client_id: ZOHO_CLIENT_ID!,
+      client_secret: ZOHO_CLIENT_SECRET!,
+      grant_type: "refresh_token",
+    });
+
+    const res = await axios.post(ZOHO_AUTH_URL, params, {
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    });
+
+    if (!res.data.access_token) {
+      throw new Error("❌ Missing access_token: " + JSON.stringify(res.data));
+    }
+    
+    cachedToken = res.data.access_token;
+    console.log("✅ Zoho access token fetched.");
+    return cachedToken;
+  } catch (err: any) {
+    console.error("❌ Failed to refresh token:", safeJson(err.response?.data || err));
+    throw err;
+  }
+};
+
+/* ------------------------------------------------------------
+   GET ACCOUNT ID
+------------------------------------------------------------- */
+const getZohoAccountId = async (token: string): Promise<string> => {
+  console.log("Fetching Zoho accountId...");
+  if (cachedAccountId) return cachedAccountId;
+
+  try {
+    const res = await axios.get(`${ZOHO_MAIL_HOST}/api/accounts`, {
+      headers: { Authorization: `Zoho-oauthtoken ${token}` },
+    });
+
+    const accountId = res.data?.data?.[0]?.accountId;
+    if (!accountId) throw new Error("No Zoho accountId found.");
+
+    cachedAccountId = String(accountId);
+    console.log("✅ Zoho accountId fetched:", cachedAccountId);
+    return cachedAccountId;
+  } catch (err: any) {
+    console.error("❌ Failed to fetch Zoho accountId:", safeJson(err.response?.data || err));
+    throw err;
+  }
+};
+
+/* ------------------------------------------------------------
+   SEND EMAIL
+------------------------------------------------------------- */
+export const sendZohoMail = async (
+  to: string,
+  subject: string,
+  html: string
+): Promise<boolean> => {
+  console.log("Sending Zoho email...");
+  try {
+    const accessToken = await getZohoAccessToken();
+    const accountId = await getZohoAccountId(accessToken);
+
+    const payload = {
+      fromAddress: ZOHO_FROM,
+      toAddress: to,
+      subject,
+      content: html,
+      mailFormat: "html",
+    };
+
+    await axios.post(
+      `${ZOHO_MAIL_HOST}/api/accounts/${accountId}/messages`,
+      payload,
+      { headers: { Authorization: `Zoho-oauthtoken ${accessToken}` } }
+    );
+
+    return true;
+  } catch (err: any) {
+    // Handle 401 token expired → retry once
+    if (err.response?.status === 401) {
+      cachedToken = null;
+      const newToken = await getZohoAccessToken();
+      return sendZohoMail(to, subject, html);
+    }
+
+    console.error("❌ Zoho Email Error:", safeJson(err.response?.data || err));
+    return false;
+  }
+};
+
+/* ------------------------------------------------------------
+   EMAIL TEMPLATE
+------------------------------------------------------------- */
 const generateEmailTemplate = (
   title: string,
   message: string,
@@ -90,16 +201,7 @@ const generateEmailTemplate = (
     padding: 32px;
   }
 
-  .body h2 {
-    margin-top: 0;
-    color: ${BRAND_COLOR};
-    font-size: 24px;
-  }
-
-  .body p {
-    font-size: 16px;
-    line-height: 1.6;
-  }
+  .body h2 { color: ${BRAND_COLOR}; }
 
   .btn {
     display: inline-block;
@@ -109,7 +211,6 @@ const generateEmailTemplate = (
     color: #fff !important;
     text-decoration: none;
     border-radius: 8px;
-    font-size: 15px;
     font-weight: bold;
   }
 
@@ -119,11 +220,6 @@ const generateEmailTemplate = (
     font-size: 12px;
     background: #f0f0f0;
     color: #777;
-  }
-
-  .social-icons img {
-    width: 26px;
-    margin: 0 8px;
   }
 </style>
 </head>
@@ -149,12 +245,6 @@ const generateEmailTemplate = (
   </div>
 
   <div class="footer">
-    <div class="social-icons">
-      <a href="https://www.facebook.com/profile.php?id=61582717470790"><img src="https://cdn-icons-png.flaticon.com/512/733/733547.png"/></a>
-      <a href="https://x.com/cardirectory1?t=D5VKSzwZdroYZcZ77sdaUg&s=09"><img src="https://cdn-icons-png.flaticon.com/512/733/733579.png"/></a>
-      <a href="https://www.instagram.com/car.directory"><img src="https://cdn-icons-png.flaticon.com/512/733/733561.png"/></a>
-    </div>
-
     <p>© ${new Date().getFullYear()} ${BRAND_NAME}. All rights reserved.</p>
   </div>
 
@@ -163,9 +253,9 @@ const generateEmailTemplate = (
 </html>
 `;
 
-/* ----------------------------------------------------------
-   PASSWORD RESET EMAIL
------------------------------------------------------------ */
+/* ------------------------------------------------------------
+   PASSWORD RESET
+------------------------------------------------------------- */
 export const sendPasswordResetEmail = async (email: string) => {
   try {
     const token = Math.random().toString(36).substring(2, 15);
@@ -174,142 +264,120 @@ export const sendPasswordResetEmail = async (email: string) => {
     await query(
       `INSERT INTO password_resets (email, token, expires_at)
        VALUES ($1, $2, $3)
-       ON CONFLICT (email) DO UPDATE SET token = $2, expires_at = $3`,
+       ON CONFLICT (email) DO UPDATE SET token=$2, expires_at=$3`,
       [email, token, expiry]
     );
 
     const resetLink = `${FRONTEND_URL}/reset-password?token=${token}`;
 
-    await transporter.sendMail({
-      from: `"${BRAND_NAME} Support" <${EMAIL_USER}>`,
-      to: email,
-      subject: "Password Reset Request",
-      html: generateEmailTemplate(
-        "Password Reset Request",
-        "We received a request to reset your password. Click the button below to continue:",
-        resetLink,
-        "Reset Password"
-      ),
-    });
+    const html = generateEmailTemplate(
+      "Password Reset Request",
+      "We received a request to reset your password.",
+      resetLink,
+      "Reset Password"
+    );
 
-    console.log(`📧 Password reset email sent to: ${email}`);
+    await sendZohoMail(email, "Password Reset Request", html);
+
     return {};
-  } catch (err: any) {
-    console.error("⚠️ Password Reset Error:", err);
+  } catch (err) {
     return { error: "Failed to send password reset email." };
   }
 };
 
-/* ----------------------------------------------------------
-   EMAIL VERIFICATION EMAIL
------------------------------------------------------------ */
-export const sendVerificationEmail = async (email: string, verifyLink: string) => {
+/* ------------------------------------------------------------
+   VERIFY EMAIL
+------------------------------------------------------------- */
+export const sendVerificationEmail = async (
+  email: string,
+  verifyLink: string
+) => {
   try {
-    await transporter.sendMail({
-      from: `"${BRAND_NAME}" <${EMAIL_USER}>`,
-      to: email,
-      subject: "Verify Your Email Address",
-      html: generateEmailTemplate(
-        "Verify Your Email",
-        "Thanks for joining! Click the button below to verify your email.",
-        verifyLink,
-        "Verify Email"
-      ),
-    });
+    const html = generateEmailTemplate(
+      "Verify Your Email",
+      "Thanks for joining! Click the button below to verify your email.",
+      verifyLink,
+      "Verify Email"
+    );
 
-    console.log(`✅ Verification email sent to: ${email}`);
+    await sendZohoMail(email, "Verify Your Email", html);
     return {};
-  } catch (err: any) {
-    console.error("⚠️ Verification Email Error:", err);
+  } catch (err) {
     return { error: "Failed to send verification email." };
   }
 };
 
-/* ----------------------------------------------------------
+/* ------------------------------------------------------------
    MASS EMAIL
------------------------------------------------------------ */
-export const sendMassEmail = async (recipients: string[], subject: string, message: string) => {
-  try {
-    const results = await Promise.allSettled(
-      recipients.map((email) =>
-        transporter.sendMail({
-          from: `"${BRAND_NAME} Updates" <${EMAIL_USER}>`,
-          to: email,
-          subject,
-          html: generateEmailTemplate(subject, message),
-        })
-      )
-    );
+------------------------------------------------------------- */
+export const sendMassEmail = async (
+  recipients: string[],
+  subject: string,
+  message: string
+) => {
+  const html = generateEmailTemplate(subject, message);
 
-    const failed = results
-      .map((r, i) => (r.status === "rejected" ? recipients[i] : null))
-      .filter(Boolean) as string[];
+  const results = await Promise.allSettled(
+    recipients.map((email) => sendZohoMail(email, subject, html))
+  );
 
-    return { success: failed.length === 0, failed };
-  } catch (err) {
-    console.error("⚠️ Mass Email Error:", err);
-    return { success: false };
-  }
+  const failed = results
+    .map((r, i) => (r.status === "rejected" ? recipients[i] : null))
+    .filter(Boolean) as string[];
+
+  return { success: failed.length === 0, failed };
 };
 
-/* ----------------------------------------------------------
-   TRIAL ACTIVATION EMAIL
------------------------------------------------------------ */
-export const sendTrialActivationEmail = async (email: string, trialEnd: Date) => {
+/* ------------------------------------------------------------
+   TRIAL ACTIVATION
+------------------------------------------------------------- */
+export const sendTrialActivationEmail = async (
+  email: string,
+  trialEnd: Date
+) => {
   try {
     const message = `
-      🎉 Congratulations! Your free trial is now active.<br/>
-      You can now list one car for 7 days on ${BRAND_NAME}.<br/>
-      Your trial ends on <b>${trialEnd.toDateString()}</b>.
+      🎉 Your free trial is now active!<br/>
+      Ends on <b>${trialEnd.toDateString()}</b>.
     `;
 
-    await transporter.sendMail({
-      from: `"${BRAND_NAME} Team" <${EMAIL_USER}>`,
-      to: email,
-      subject: "🎉 Your Free Trial Is Active!",
-      html: generateEmailTemplate(
-        "Free Trial Activated",
-        message,
-        `${FRONTEND_URL}/dashboard`,
-        "Go to Dashboard"
-      ),
-    });
+    const html = generateEmailTemplate(
+      "Your Trial Is Active",
+      message,
+      `${FRONTEND_URL}/dashboard`,
+      "Go to Dashboard"
+    );
 
-    console.log(`📧 Trial activation email sent to: ${email}`);
+    await sendZohoMail(email, "🎉 Your Trial Is Active!", html);
     return {};
-  } catch (err: any) {
-    console.error("⚠️ Trial Activation Error:", err);
+  } catch (err) {
     return { error: "Failed to send trial activation email." };
   }
 };
 
-/* ----------------------------------------------------------
-   TRIAL END REMINDER EMAIL
------------------------------------------------------------ */
-export const sendTrialReminderEmail = async (email: string, trialEnd: Date) => {
+/* ------------------------------------------------------------
+   TRIAL REMINDER
+------------------------------------------------------------- */
+export const sendTrialReminderEmail = async (
+  email: string,
+  trialEnd: Date
+) => {
   try {
     const message = `
-      ⏳ Hey! Your free trial with ${BRAND_NAME} is ending soon.<br/>
-      It expires on <b>${trialEnd.toDateString()}</b>.<br/>
-      Upgrade now to avoid losing access.
+      ⏳ Your trial ends on <b>${trialEnd.toDateString()}</b>.<br/>
+      Upgrade to keep your listing active.
     `;
 
-    await transporter.sendMail({
-      from: `"${BRAND_NAME} Billing" <${EMAIL_USER}>`,
-      to: email,
-      subject: "⏳ Your Free Trial Ends Soon",
-      html: generateEmailTemplate(
-        "Your Trial Ends Soon",
-        message,
-        `${FRONTEND_URL}/pricing`,
-        "Upgrade Now"
-      ),
-    });
+    const html = generateEmailTemplate(
+      "Your Trial Ends Soon",
+      message,
+      `${FRONTEND_URL}/pricing`,
+      "Upgrade Now"
+    );
 
-    console.log(`📧 Trial reminder email sent to: ${email}`);
+    await sendZohoMail(email, "⏳ Your Trial Ends Soon", html);
     return {};
-  } catch (err: any) {
-    console.error("⚠️ Trial Reminder Error:", err);
+  } catch (err) {
     return { error: "Failed to send trial reminder email." };
   }
 };
