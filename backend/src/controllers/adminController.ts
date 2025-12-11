@@ -2,8 +2,9 @@ import { Request, Response } from "express";
 import { query, pool } from "../db";
 import bcrypt from "bcryptjs";
 import { v4 as uuidv4 } from "uuid";
-import { sendMassEmail } from "./emailController";
+import { sendZohoMail } from "./emailController";
 import { uploadLogoToR2 } from "../utils/cloudflareUpload";
+import { console } from "inspector";
 
 // 🚗 Fetch all cars with dealer info
 export const getAllCars = async (req: Request, res: Response) => {
@@ -193,6 +194,8 @@ export const replaceGallery = async (req: Request, res: Response) => {
 
 // 👤 Add dealer
 export const addDealer = async (req, res) => {
+  console.log("🚀 addDealer called with body:", req.body);
+
   try {
     const { full_name, email, company_name, phone, country, logo } = req.body;
 
@@ -206,32 +209,41 @@ export const addDealer = async (req, res) => {
       return res.status(400).json({ message: "Email already in use." });
     }
 
-    // 2️⃣ Generate password
+    // 2️⃣ Generate and hash password
     const defaultPassword = Math.random().toString(36).slice(-10);
     const hashed = await bcrypt.hash(defaultPassword, 10);
 
-    // 3️⃣ Upload Logo (optional)
-    let logoUrl = null;
+    // 3️⃣ Upload Logo to R2 → stored in company_logo column
+    let companyLogoUrl = null;
     if (logo) {
-      logoUrl = await uploadLogoToR2(logo); // base64 from frontend
+      companyLogoUrl = await uploadLogoToR2(logo); // base64 from frontend
     }
 
     // 4️⃣ Create User entry
     const userId = uuidv4();
     await query(
       `INSERT INTO users (id, full_name, email, password, role, is_verified, created_at)
-       VALUES ($1,$2,$3,$4,'dealer',true,NOW())`,
+       VALUES ($1, $2, $3, $4, 'dealer', true, NOW())`,
       [userId, full_name, email, hashed]
     );
 
-    // 5️⃣ Create Dealer entry
+    // 5️⃣ Create Dealer entry (MATCHES YOUR SCHEMA)
     const dealerId = uuidv4();
     const dealerResult = await query(
       `INSERT INTO dealers
-       (id, user_id, full_name, company_name, email, phone, country, logo, status, created_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'verified',NOW())
+       (id, user_id, full_name, company_name, email, phone, country, company_logo, status, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'verified', NOW())
        RETURNING *`,
-      [dealerId, userId, full_name, company_name, email, phone, country, logoUrl]
+      [
+        dealerId,
+        userId,
+        full_name,
+        company_name,
+        email,
+        phone,
+        country,
+        companyLogoUrl || "default_logo.png"
+      ]
     );
 
     // 6️⃣ Compose email
@@ -248,18 +260,20 @@ export const addDealer = async (req, res) => {
     `;
 
     // 7️⃣ Send email
-    await sendMassEmail([email], "Your Dealer Account Login", emailBody);
+    await sendZohoMail(email, "Your Dealer Account Login", emailBody);
 
-    // 8️⃣ Final Response
+    // 8️⃣ Final response
     res.status(201).json({
       message: "Dealer created and login credentials sent.",
       dealer: dealerResult.rows[0],
     });
+
   } catch (err) {
     console.error("❌ addDealer Error:", err);
     res.status(500).json({ error: err.message });
   }
 };
+
 
 // ❌ Delete dealer
 export const deleteDealer = async (req: Request, res: Response) => {
