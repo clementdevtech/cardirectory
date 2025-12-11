@@ -10,7 +10,7 @@ import { console } from "inspector";
  * Sends dealer login credentials via email
  */
 export const createDealer = async (req, res) => {
-  console.log("🚀 createDealer called with body:", req.body);
+  console.log("🚀 createDealer called with body:", req.body)z;
   try {
     const { full_name, email, company_name, phone, country } = req.body;
 
