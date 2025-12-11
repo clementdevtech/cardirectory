@@ -262,7 +262,7 @@ export const addDealer = async (req, res) => {
     // 7️⃣ Send email
     await sendZohoMail(email, "Your Dealer Account Login", emailBody);
 
-    // 8️⃣ Final response
+    //8️⃣ Final response
     res.status(201).json({
       message: "Dealer created and login credentials sent.",
       dealer: dealerResult.rows[0],
