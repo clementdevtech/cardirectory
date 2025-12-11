@@ -3,14 +3,12 @@ import bcrypt from "bcryptjs";
 import { v4 as uuidv4 } from "uuid";
 import { query } from "../db"; // ✅ new import style
 import { sendMassEmail } from "./emailController"; // ✅ uses your branded mailer
-import { console } from "inspector";
 
 /**
  * Admin creates a new dealer (user + dealer entry)
  * Sends dealer login credentials via email
  */
 export const createDealer = async (req, res) => {
-  console.log("🚀 createDealer called with body:", req.body)z;
   try {
     const { full_name, email, company_name, phone, country } = req.body;
 
