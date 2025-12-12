@@ -11,11 +11,10 @@ import {
   addDealer,
   deleteDealer,
 } from "../controllers/adminController";
-import { createDealer } from "../controllers/adminDealerController";
 
 const router = express.Router();
 
-// 🚗 Car Routes
+// 🚗 Car Routes 
 router.get("/cars", getAllCars);
 router.post("/cars", addCar);
 router.put("/cars/:id", updateCar);
