@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from "react";
 import axios from "axios";
+import CarForm from "@/components/CarForm";
+import DealerForm from "@/components/DealerForm";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,14 +22,10 @@ import {
 } from "lucide-react";
 import { Dialog } from "@headlessui/react";
 
-// Environment
-const CLOUD_NAME = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME as string;
-const UPLOAD_PRESET = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET as string;
-const GEOAPIFY_API_KEY = import.meta.env.VITE_GEOAPIFY_API_KEY as string;
-const API_BASE = (import.meta.env.VITE_BACKEND_URL as string);
-const ADMIN_API = API_BASE.endsWith("/admin") ? API_BASE : `${API_BASE}/admin`;
+import { useCarForm } from "@/hooks/useCarForm";
+import { useCarUploads } from "@/hooks/useCarUploads";
+import { useLocationSearch } from "@/hooks/useLocationSearch";
 
-// Types (lightweight)
 type Car = {
   id: number;
   make: string;
@@ -58,23 +56,15 @@ type Dealer = {
   company_logo?: string;
 };
 
-interface UploadProgress {
-  fileName: string;
-  progress: number;
-  url?: string;
-}
-
-interface GeoapifyPlace {
-  formatted: string;
-  place_id: string;
-}
+// env & api
+const API_BASE = (import.meta.env.VITE_BACKEND_URL as string);
+const ADMIN_API = API_BASE.endsWith("/admin") ? API_BASE : `${API_BASE}/admin`;
+const GEOAPIFY_API_KEY = import.meta.env.VITE_GEOAPIFY_API_KEY as string;
 
 const axiosInstance = axios.create({
   baseURL: ADMIN_API,
   withCredentials: true,
 });
-
-// attach jwt from localStorage if present
 axiosInstance.interceptors.request.use((config) => {
   const token = localStorage.getItem("token");
   if (token && config.headers) config.headers.Authorization = `Bearer ${token}`;
@@ -88,7 +78,6 @@ const AdminDashboard: React.FC = () => {
   const [dealers, setDealers] = useState<Dealer[]>([]);
   const [loading, setLoading] = useState(false);
 
-
   const [stats, setStats] = useState({
     totalListings: 0,
     pendingApproval: 0,
@@ -96,92 +85,37 @@ const AdminDashboard: React.FC = () => {
     totalRevenue: 0,
   });
 
-  // Car form state
-  const [form, setForm] = useState<Partial<Car>>({
-    make: "",
-    model: "",
-    year: 0,
-    mileage: 0,
-    condition: "good",
-    transmission: "",
-    price: 0,
-    location: "",
-    phone: "",
-    description: "",
-    featured: false,
-    gallery: [],
-    video_url: "",
-    dealer_id: null,
-    status: "active",
-  });
+  // hooks
+  const { form, setForm, editId, startEdit, resetForm } = useCarForm();
+  const {
+    galleryPreview,
+    galleryProgress,
+    selectGalleryFiles,
+    uploadAssets,
+    resetUploads,
+    setVideoFile,
+  } = useCarUploads();
+  const {
+    query: locationQuery,
+    setQuery: setLocationQuery,
+    suggestions,
+    isFetching,
+  } = useLocationSearch(GEOAPIFY_API_KEY);
 
-  const [galleryFiles, setGalleryFiles] = useState<File[]>([]);
-  const [galleryProgress, setGalleryProgress] = useState<UploadProgress[]>([]);
-  const [videoFile, setVideoFile] = useState<File | null>(null);
-  const [videoProgress, setVideoProgress] = useState<UploadProgress | null>(null);
-  const [galleryPreview, setGalleryPreview] = useState<string[]>([]);
-
-
-  const [locationQuery, setLocationQuery] = useState("");
-  const [suggestions, setSuggestions] = useState<GeoapifyPlace[]>([]);
-  const [isFetching, setIsFetching] = useState(false);
-
+  // lightbox
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxImages, setLightboxImages] = useState<string[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
+  const openLightbox = (images: string[], startIndex = 0) => {
+    setLightboxImages(images);
+    setCurrentIndex(startIndex);
+    setLightboxOpen(true);
+  };
+  const nextImage = () => setCurrentIndex((i) => (i + 1) % lightboxImages.length);
+  const prevImage = () =>
+    setCurrentIndex((i) => (i === 0 ? lightboxImages.length - 1 : i - 1));
 
-  // Dealer creation state
-const [newDealer, setNewDealer] = useState({
-  full_name: "",
-  email: "",
-  company_name: "",
-  phone: "",
-  country: "",
-});
-
-// dealer logo file + base64 version
-const [dealerLogoBase64, setDealerLogoBase64] = useState<string | null>(null);
-const [dealerLogoPreview, setDealerLogoPreview] = useState<string | null>(null);
-
-  // Dealer logo states (upload + preview)
-  const [dealerLogoFile, setDealerLogoFile] = useState<File | null>(null);
-  const [dealerLogoUrl, setDealerLogoUrl] = useState<string>("");
-  const [dealerLogoProgress, setDealerLogoProgress] = useState<number>(0);
-
-  const [editCarId, setEditCarId] = useState<number | null>(null);
-
-  // ---------- Helpers: Cloudinary upload with progress ----------
-  const uploadWithProgress = (
-    file: File,
-    resourceType: "image" | "video",
-    onProgress: (p: number) => void
-  ): Promise<string> =>
-    new Promise((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
-      const url = `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/${resourceType}/upload`;
-      xhr.open("POST", url);
-      xhr.upload.onprogress = (event) => {
-        if (event.lengthComputable) {
-          const percent = Math.round((event.loaded / event.total) * 100);
-          onProgress(percent);
-        }
-      };
-      xhr.onload = () => {
-        if (xhr.status >= 200 && xhr.status < 300) {
-          const data = JSON.parse(xhr.responseText);
-          resolve(data.secure_url);
-        } else {
-          reject(new Error(`Cloudinary upload failed: ${xhr.statusText || xhr.status}`));
-        }
-      };
-      xhr.onerror = () => reject(new Error("Network error during upload"));
-      const fd = new FormData();
-      fd.append("file", file);
-      fd.append("upload_preset", UPLOAD_PRESET);
-      xhr.send(fd);
-    });
-
-  // ---------- Fetch dashboard data ----------
+  // fetch data
   const fetchDashboardData = async () => {
     try {
       const [carsRes, dealersRes] = await Promise.all([
@@ -194,16 +128,12 @@ const [dealerLogoPreview, setDealerLogoPreview] = useState<string | null>(null);
       setCars(carsData);
       setDealers(dealersData);
 
-      // compute basic stats
       const totalListings = carsData.length;
       const pendingApproval = carsData.filter((c) => c.status === "pending").length;
       const totalDealers = dealersData.length;
 
-      // Attempt to fetch payments for revenue (fallback to 0)
       let totalRevenue = 0;
       try {
-        // payments route is mounted at /api/payments on your backend (not under /admin).
-        // We'll attempt to fetch using API_BASE (not ADMIN_API) to match server structure.
         const paymentsRes = await axios.get(`${API_BASE}/payments`);
         const payments = paymentsRes.data || [];
         totalRevenue =
@@ -211,7 +141,7 @@ const [dealerLogoPreview, setDealerLogoPreview] = useState<string | null>(null);
             .filter((p: any) => p.status === "completed")
             .reduce((sum: number, p: any) => sum + Number(p.amount || 0), 0) || 0;
       } catch {
-        totalRevenue = 0; // not critical; show 0 if payments endpoint unavailable
+        totalRevenue = 0;
       }
 
       setStats({ totalListings, pendingApproval, totalDealers, totalRevenue });
@@ -229,50 +159,15 @@ const [dealerLogoPreview, setDealerLogoPreview] = useState<string | null>(null);
     fetchDashboardData();
   }, []);
 
-  // ---------- Geoapify suggestions ----------
+  // global event for lightbox (used by CarForm previews if you dispatch event)
   useEffect(() => {
-    const fetchSuggestions = async () => {
-      if (!locationQuery.trim()) {
-        setSuggestions([]);
-        return;
-      }
-      setIsFetching(true);
-      try {
-        const res = await fetch(
-          `https://api.geoapify.com/v1/geocode/autocomplete?text=${encodeURIComponent(
-            locationQuery
-          )}&limit=5&apiKey=${GEOAPIFY_API_KEY}`
-        );
-        const data = await res.json();
-        const results: GeoapifyPlace[] =
-          data.features?.map((f: any) => ({
-            formatted: f.properties.formatted,
-            place_id: f.properties.place_id,
-          })) || [];
-        setSuggestions(results);
-      } catch (e) {
-        setSuggestions([]);
-      } finally {
-        setIsFetching(false);
-      }
-    };
+    const handler = (e: any) => openLightbox(e.detail || []);
+    window.addEventListener("open-lightbox", handler);
+    return () => window.removeEventListener("open-lightbox", handler);
+  }, []);
 
-    const t = setTimeout(fetchSuggestions, 350);
-    return () => clearTimeout(t);
-  }, [locationQuery]);
-
-  // ---------- Lightbox ----------
-  const openLightbox = (images: string[]) => {
-    setLightboxImages(images);
-    setCurrentIndex(0);
-    setLightboxOpen(true);
-  };
-  const nextImage = () => setCurrentIndex((i) => (i + 1) % lightboxImages.length);
-  const prevImage = () =>
-    setCurrentIndex((i) => (i === 0 ? lightboxImages.length - 1 : i - 1));
-
-  // ---------- CRUD handlers ----------
-  const handleSubmit = async (e: React.FormEvent) => {
+  // submit car (called from CarForm.onSubmit)
+  const handleCarSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.make || !form.model || !form.price) {
       toast({
@@ -285,67 +180,27 @@ const [dealerLogoPreview, setDealerLogoPreview] = useState<string | null>(null);
 
     setLoading(true);
     try {
-      // Upload gallery files to Cloudinary (parallel)
-      const galleryUrls = await Promise.all(
-        galleryFiles.map((file) =>
-          uploadWithProgress(file, "image", (progress) =>
-            setGalleryProgress((prev) => [
-              ...prev.filter((p) => p.fileName !== file.name),
-              { fileName: file.name, progress },
-            ])
-          )
-        )
-      );
-
-      // Upload video if any
-      let videoUrl: string | undefined = form.video_url;
-      if (videoFile) {
-        videoUrl = await uploadWithProgress(videoFile, "video", (progress) =>
-          setVideoProgress({ fileName: videoFile.name, progress })
-        );
-      }
+      const { galleryUrls, videoUrl } = await uploadAssets();
 
       const payload = {
         ...form,
         price: Number(form.price) || 0,
         year: Number(form.year) || 0,
         mileage: Number(form.mileage) || 0,
-        gallery: [ ...(editCarId ? (form.gallery || []) : []), ...galleryUrls, ],
-        video_url: videoUrl || "",
+        gallery: [...(form.gallery || []), ...galleryUrls],
+        video_url: videoUrl || form.video_url || "",
       };
 
-      if (editCarId) {
-        await axiosInstance.put(`/cars/${editCarId}`, payload);
+      if (editId) {
+        await axiosInstance.put(`/cars/${editId}`, payload);
         toast({ title: "Car updated successfully" });
-        setEditCarId(null);
       } else {
         await axiosInstance.post("/cars", payload);
         toast({ title: "Car added successfully" });
       }
 
-      // reset form
-      setForm({
-        make: "",
-        model: "",
-        year: 0,
-        mileage: 0,
-        condition: "good",
-        transmission: "",
-        price: 0,
-        location: "",
-        phone: "",
-        description: "",
-        featured: false,
-        gallery: [],
-        video_url: "",
-        dealer_id: null,
-        status: "active",
-      });
-      setGalleryFiles([]);
-      setVideoFile(null);
-      setGalleryProgress([]);
-      setVideoProgress(null);
-
+      resetForm();
+      resetUploads();
       fetchDashboardData();
     } catch (err: any) {
       console.error(err);
@@ -402,66 +257,21 @@ const [dealerLogoPreview, setDealerLogoPreview] = useState<string | null>(null);
     }
   };
 
-  // Dealers
-const handleDealerLogoSelect = async (file: File | null) => {
-  if (!file) return;
-
-  // Preview
-  const previewUrl = URL.createObjectURL(file);
-  setDealerLogoPreview(previewUrl);
-
-  // Convert to Base64
-  const reader = new FileReader();
-  reader.onloadend = () => {
-    setDealerLogoBase64(reader.result as string);
+  // dealer flows (AdminDashboard will call API; DealerForm handles UI & base64 conversion)
+  const handleCreateDealer = async (payload: any) => {
+    try {
+      await axiosInstance.post("/dealers", payload);
+      toast({ title: "Dealer created successfully" });
+      fetchDashboardData();
+    } catch (err: any) {
+      toast({
+        title: "Error creating dealer",
+        description: err?.response?.data?.message || err.message,
+        variant: "destructive",
+      });
+      throw err;
+    }
   };
-  reader.readAsDataURL(file);
-};
-
-
- const handleAddDealer = async (e: React.FormEvent) => {
-  e.preventDefault();
-
-  if (!newDealer.full_name || !newDealer.email || !newDealer.country) {
-    toast({
-      title: "Missing fields",
-      description: "Enter full name, email and country.",
-      variant: "destructive",
-    });
-    return;
-  }
-
-  try {
-    const payload = {
-      ...newDealer,
-      logo: dealerLogoBase64, // base64 string → backend converts to R2 URL
-    };
-
-    await axiosInstance.post("/dealers", payload);
-
-    toast({ title: "Dealer created successfully" });
-
-    // Reset form
-    setNewDealer({
-      full_name: "",
-      email: "",
-      company_name: "",
-      phone: "",
-      country: "",
-    });
-    setDealerLogoBase64(null);
-    setDealerLogoPreview(null);
-
-    fetchDashboardData();
-  } catch (err: any) {
-    toast({
-      title: "Error creating dealer",
-      description: err?.response?.data?.message || err.message,
-      variant: "destructive",
-    });
-  }
-};
-
 
   const handleDeleteDealer = async (id: string) => {
     if (!confirm("Remove this dealer?")) return;
@@ -478,29 +288,15 @@ const handleDealerLogoSelect = async (file: File | null) => {
     }
   };
 
-  // When user clicks edit on a car: populate form
- const startEditCar = (car: Car) => {
-  setEditCarId(car.id);
-
-// Set full form state
-setForm({
-...car,
-price: Number(car.price),
-year: car.year,
-mileage: Number(car.mileage),
-gallery: car.gallery || [], // ensure array
-});
-
-// Show existing gallery images in preview
-setGalleryPreview(car.gallery || []);
-
-// Reset any previously selected files
-setGalleryFiles([]);
-
-// Smooth scroll to top for editing mode
-window.scrollTo({ top: 0, behavior: "smooth" });
-};
-
+  // when user clicks edit on a car: populate form
+  const startEditCar = (car: Car) => {
+    startEdit(car);
+    // show existing images in preview
+    if (car.gallery && car.gallery.length > 0) {
+      window.dispatchEvent(new CustomEvent("open-lightbox", { detail: car.gallery }));
+    }
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -515,122 +311,34 @@ window.scrollTo({ top: 0, behavior: "smooth" });
           <Card className="p-6">Revenue: KES {Number(stats.totalRevenue).toLocaleString()}</Card>
         </div>
 
-        {/* Car Management */}
+        {/* Car Management (CarForm is stateless UI) */}
         <Card className="p-6">
           <h2 className="text-2xl font-bold mb-6 flex items-center gap-2">
-            <CarIcon /> {editCarId ? "Edit Car" : "Add New Car"}
+            <CarIcon /> {editId ? "Edit Car" : "Add New Car"}
           </h2>
 
-          <form onSubmit={handleSubmit} className="space-y-6">
-            <div className="grid md:grid-cols-2 gap-4">
-              <div>
-                <Label>Make</Label>
-                <Input value={form.make || ""} onChange={(e) => setForm({ ...form, make: e.target.value })} />
-              </div>
-              <div>
-                <Label>Model</Label>
-                <Input value={form.model || ""} onChange={(e) => setForm({ ...form, model: e.target.value })} />
-              </div>
-              <div>
-                <Label>Year</Label>
-                <Input type="number" value={form.year ?? ""} onChange={(e) => setForm({ ...form, year: Number(e.target.value) })} />
-              </div>
-              <div>
-                <Label>Mileage (km)</Label>
-                <Input type="number" value={form.mileage ?? ""} onChange={(e) => setForm({ ...form, mileage: Number(e.target.value) })} />
-              </div>
-            </div>
+          <CarForm
+  form={form}
+  setForm={setForm}
+  loading={loading}
+  editMode={!!editId}
+  galleryPreview={galleryPreview}
+  setGalleryFiles={selectGalleryFiles}
+  galleryProgress={galleryProgress}
+  locationQuery={locationQuery}
+  setLocationQuery={setLocationQuery}
+  suggestions={suggestions}
+  onSelectSuggestion={(place: any) => {
+    setForm({ ...form, location: place.formatted });
+    setLocationQuery(place.formatted);
+  }}
+  onSubmit={handleCarSubmit}
+  onCancelEdit={() => {
+    resetForm();
+    resetUploads();
+  }}
+/>
 
-            <div>
-              <Label>Upload Photos</Label>
-              <div
-                className="border-2 border-dashed rounded-lg p-6 text-center cursor-pointer"
-                onClick={() => document.getElementById("gallery-input")?.click()}
-              >
-                <Upload className="mx-auto text-gray-400" />
-                <p>Click or drag & drop (max 8)</p>
-                <input
-                  id="gallery-input"
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  hidden
-                  onChange={(e) => {
-                      const files = Array.from(e.target.files || []).slice(0, 8);
-                      setGalleryFiles(files);
-                         
-                      // generate local previews
-                      const previewUrls = files.map((file) => URL.createObjectURL(file));
-                      setGalleryPreview(previewUrls);
-                  }}
-
-                />
-                {/* progress rows */}
-                <div className="grid grid-cols-4 gap-3 mt-4">
-                    {galleryPreview.map((img, i) => (
-                      <img
-                       key={i}
-                       src={img}
-                       className="w-full h-24 object-cover rounded cursor-pointer border"
-                       onClick={() => openLightbox(galleryPreview)}
-                      />
-                    ))}
-                  </div>
-
-                <div className="mt-3 space-y-2">
-                  {galleryProgress.map((p) => (
-                    <div key={p.fileName} className="text-sm">
-                      {p.fileName} — {p.progress}%
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            <Label>Price (KES)</Label>
-            <Input type="number" value={form.price ?? ""} onChange={(e) => setForm({ ...form, price: Number(e.target.value) })} />
-
-            <Label>Location</Label>
-            <Input value={locationQuery || form.location || ""} onChange={(e) => setLocationQuery(e.target.value)} placeholder="Search location..." />
-            {isFetching && <p>Loading suggestions...</p>}
-            {suggestions.map((s) => (
-              <div
-                key={s.place_id}
-                className="p-2 border cursor-pointer hover:bg-gray-100"
-                onClick={() => {
-                  setForm({ ...form, location: s.formatted });
-                  setLocationQuery(s.formatted);
-                  setSuggestions([]);
-                }}
-              >
-                {s.formatted}
-              </div>
-            ))}
-
-            <Label>Phone</Label>
-            <Input value={form.phone ?? ""} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
-
-            <Label>Description</Label>
-            <Textarea value={form.description ?? ""} onChange={(e) => setForm({ ...form, description: e.target.value })} />
-
-            <div className="flex items-center gap-2">
-              <input type="checkbox" checked={!!form.featured} onChange={(e) => setForm({ ...form, featured: e.target.checked })} />
-              <Label className="flex items-center gap-1">
-                <Star className="text-yellow-500 w-4 h-4" /> Feature this car
-              </Label>
-            </div>
-
-            <div className="flex gap-2">
-              <Button type="submit" disabled={loading}>
-                {loading ? "Saving..." : editCarId ? "Update Car" : "Add Car"}
-              </Button>
-              {editCarId && (
-                <Button type="button" variant="ghost" onClick={() => { setEditCarId(null); setForm({ ...form, make: "", model: "", price: 0 }); }}>
-                  Cancel
-                </Button>
-              )}
-            </div>
-          </form>
         </Card>
 
         {/* Car Listings */}
@@ -681,110 +389,36 @@ window.scrollTo({ top: 0, behavior: "smooth" });
 
         {/* Dealers */}
         <Card className="p-6">
-  <h2 className="text-2xl font-bold mb-4 flex items-center gap-2">
-    <UserPlus /> Add Dealer
-  </h2>
+          <h2 className="text-2xl font-bold mb-4 flex items-center gap-2">
+            <UserPlus /> Add Dealer
+          </h2>
 
-  <form onSubmit={handleAddDealer} className="space-y-4">
-    <div className="grid md:grid-cols-2 gap-4">
-      <div>
-        <Label>Full Name</Label>
-        <Input
-          value={newDealer.full_name}
-          onChange={(e) => setNewDealer({ ...newDealer, full_name: e.target.value })}
-        />
-      </div>
+          <DealerForm onCreate={handleCreateDealer} />
 
-      <div>
-        <Label>Email</Label>
-        <Input
-          value={newDealer.email}
-          onChange={(e) => setNewDealer({ ...newDealer, email: e.target.value })}
-        />
-      </div>
-
-      <div>
-        <Label>Company Name</Label>
-        <Input
-          value={newDealer.company_name}
-          onChange={(e) => setNewDealer({ ...newDealer, company_name: e.target.value })}
-        />
-      </div>
-
-      <div>
-        <Label>Phone</Label>
-        <Input
-          value={newDealer.phone}
-          onChange={(e) => setNewDealer({ ...newDealer, phone: e.target.value })}
-        />
-      </div>
-
-      <div>
-        <Label>Country</Label>
-        <Input
-          value={newDealer.country}
-          onChange={(e) => setNewDealer({ ...newDealer, country: e.target.value })}
-        />
-      </div>
-    </div>
-
-    {/* Logo uploader */}
-    <div>
-      <Label>Upload Dealer Logo</Label>
-
-      <div
-        className="border-2 border-dashed rounded-lg p-4 text-center cursor-pointer"
-        onClick={() => document.getElementById("dealer-logo-input")?.click()}
-      >
-        {dealerLogoPreview ? (
-          <img
-            src={dealerLogoPreview}
-            className="w-32 h-32 mx-auto object-cover rounded"
-          />
-        ) : (
-          <div className="text-gray-400 flex flex-col items-center">
-            <ImageIcon className="w-10 h-10" />
-            <p>Click to upload logo</p>
-          </div>
-        )}
-
-        <input
-          id="dealer-logo-input"
-          type="file"
-          accept="image/*"
-          hidden
-          onChange={(e) => handleDealerLogoSelect(e.target.files?.[0] || null)}
-        />
-      </div>
-    </div>
-
-    <Button type="submit">Add Dealer</Button>
-  </form>
-
-
-
-          {dealers.length === 0 ? (
-            <p>No dealers found.</p>
-          ) : (
-            dealers.map((d) => (
-              <div key={d.id} className="flex justify-between items-center border p-3 rounded mb-2">
-                <div className="flex items-center gap-3">
-                  {d.company_logo ? (
-                    <img src={d.company_logo} alt="logo" className="w-10 h-10 rounded object-cover" />
-                  ) : (
-                    <div className="w-10 h-10 bg-gray-200 rounded" />
-                  )}
-                  <div>
-                    <p className="font-semibold">{d.full_name}</p>
-                    <p className="text-sm text-gray-500">{d.email}</p>
+          <div className="mt-6">
+            {dealers.length === 0 ? (
+              <p>No dealers found.</p>
+            ) : (
+              dealers.map((d) => (
+                <div key={d.id} className="flex justify-between items-center border p-3 rounded mb-2">
+                  <div className="flex items-center gap-3">
+                    {d.company_logo ? (
+                      <img src={d.company_logo} alt="logo" className="w-10 h-10 rounded object-cover" />
+                    ) : (
+                      <div className="w-10 h-10 bg-gray-200 rounded" />
+                    )}
+                    <div>
+                      <p className="font-semibold">{d.full_name}</p>
+                      <p className="text-sm text-gray-500">{d.email}</p>
+                    </div>
                   </div>
+                  <Button size="sm" variant="destructive" onClick={() => handleDeleteDealer(d.id)}>
+                    <UserX className="w-4 h-4 mr-1" /> Remove
+                  </Button>
                 </div>
-                <Button size="sm" variant="destructive" onClick={() => handleDeleteDealer(d.id)}>
-                  <UserX className="w-4 h-4 mr-1" /> Remove
-                </Button>
-              </div>
-            ))
-          )}
+              ))
+            )}
+          </div>
         </Card>
       </main>
 
