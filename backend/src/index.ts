@@ -9,7 +9,9 @@ import locationsRouter from "./routes/locations";
 import auth from "./routes/auth";
 import emailRoutes from "./routes/emailRoutes";
 import adminRoutes from "./routes/adminRoutes";
+import dealerCarsRoutes from "./routes/dealerRoutes";
 import oauthRouter from  "./routes/emailAuth";
+import carsRouter from "./routes/cars";
 
 
 dotenv.config();
@@ -42,7 +44,9 @@ app.use("/api/locations", locationsRouter);
 app.use("/api/auth", auth);
 app.use("/api/email", emailRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/dealer", dealerCarsRoutes);
 app.use("/oauth", oauthRouter);
+app.use("/api/cars", carsRouter);
 
 // ✅ Health check endpoint for Render
 app.get("/", (req, res) => res.send("✅ Cardirectory API running 🚀"));

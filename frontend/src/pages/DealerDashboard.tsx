@@ -1,280 +1,371 @@
-// ==========================================================================
-// DealerDashboard (Rewritten to use CarForm + Hooks)
-// ==========================================================================
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogDescription,
+  DialogTrigger,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
-import { Card } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import DealerCarForm from "@/components/dealer/DealerCarForm";
+import DealerAnalytics from "@/components/dealer/DealerAnalytics";
+import DealerViewsOverTime from "@/components/dealer/DealerViewsOverTime";
+import { useDealerNotifications } from "@/utils/useDealerNotifications";
 
-import { Car, Plus, Edit } from "lucide-react";
+import {
+  Plus,
+  Edit,
+  User,
+  RefreshCw,
+  Bell,
+  Lock,
+} from "lucide-react";
 
-// ================== IMPORTS FOR NEW FORM SYSTEM ===================
-import CarForm from "@/components/CarForm";
-import { useCarForm } from "@/hooks/useCarForm";
-import { useCarUploads } from "@/hooks/useCarUploads";
-import { useLocationSearch } from "@/hooks/useLocationSearch";
+import {
+  differenceInDays,
+  differenceInHours,
+  differenceInMinutes,
+} from "date-fns";
 
-// ==================================================================
-// TYPES
-// ==================================================================
+/* ============================
+   Types
+============================ */
 interface Dealer {
   id: string;
   user_id: string;
-  full_name?: string;
-  company_name?: string;
-  phone?: string;
-  email?: string;
-  location?: string;
+  full_name: string;
+  company_name: string | null;
+  email: string;
+  phone: string | null;
+  country: string | null;
+  city: string | null;
+  national_id: string | null;
+  tax_id: string | null;
+  company_logo: string | null;
+  status: "pending" | "verified" | "rejected" | "suspended";
+  validation_message?: string | null;
+}
+
+interface UserTrial {
+  is_on_trial: boolean;
+  trial_end: string | null;
 }
 
 interface Listing {
   id: number;
-  dealer_id?: string;
   make: string;
   model: string;
   year: number;
-  price: number;
-  mileage: number;
-  condition: string;
-  location: string;
-  description: string;
-  phone: string;
-  status: "pending" | "active" | "removed" | "archived";
+  status: string;
   gallery?: string[];
-  video_url?: string | null;
-  created_at?: string;
 }
 
-// ==================================================================
-// MAIN DASHBOARD
-// ==================================================================
-export default function DealerDashboard() {
+/* ============================
+   Component
+============================ */
+const DealerDashboard: React.FC = () => {
   const { user, isLoading } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
 
   const [dealer, setDealer] = useState<Dealer | null>(null);
+  const [dealerForm, setDealerForm] = useState<Partial<Dealer>>({});
+  const [trial, setTrial] = useState<UserTrial | null>(null);
   const [listings, setListings] = useState<Listing[]>([]);
+  const [remainingTrial, setRemainingTrial] = useState("");
 
-  // Redirect if not dealer
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [isCarDialogOpen, setIsCarDialogOpen] = useState(false);
+  const [carStep, setCarStep] = useState(1);
+  const [carForm, setCarForm] = useState<any>({
+    make: "",
+    model: "",
+    year: "",
+    mileage: "",
+    condition: "used",
+    transmission: "",
+    description: "",
+    price: "",
+    location: "",
+    phone: "",
+  });
+  const [galleryFiles, setGalleryFiles] = useState<File[]>([]);
+  const [carErrors, setCarErrors] = useState<Record<string, string>>({});
+  const [savingCar, setSavingCar] = useState(false);
+
+  /* ============================
+     Guard
+  ============================ */
   useEffect(() => {
-    if (!isLoading && (!user || user.role !== "dealer")) {
+    if (!isLoading && (!user || (user as any).role !== "dealer")) {
       navigate("/login");
     }
-  }, [isLoading, user]);
+  }, [user, isLoading, navigate]);
 
-  // LOAD DATA (Dealer from Supabase, Cars from Express backend)
-  const loadData = useCallback(async () => {
+  /* ============================
+     Fetch data
+  ============================ */
+  const fetchData = useCallback(async () => {
     if (!user) return;
 
-    // Dealer still from Supabase
-    const { data: d } = await supabase
+    const { data: dealer } = await supabase
       .from("dealers")
       .select("*")
       .eq("user_id", user.id)
-      .maybeSingle();
+      .single();
 
-    setDealer(d ?? null);
+    if (!dealer) return;
 
-    if (d) {
-      const res = await fetch("/api/admin/cars");
-      const cars = await res.json();
-      setListings(cars.filter((c: any) => c.dealer_id === d.id));
-    }
+    setDealer(dealer);
+    setDealerForm(dealer);
+
+    const { data: trial } = await supabase
+      .from("users")
+      .select("is_on_trial, trial_end")
+      .eq("id", user.id)
+      .single();
+
+    setTrial(trial);
+
+    const { data: cars } = await supabase
+      .from("cars")
+      .select("id, make, model, year, status, gallery")
+      .eq("dealer_id", dealer.id)
+      .order("created_at", { ascending: false });
+
+    setListings(cars ?? []);
   }, [user]);
 
   useEffect(() => {
-    loadData();
-  }, [loadData]);
+    fetchData();
+  }, [fetchData]);
 
-  // ==================================================================
-  // CAR FORM HOOKS (shared with Admin Dashboard)
-  // ==================================================================
-  const {
-    form,
-    setForm,
-    editId,
-    startEdit,
-    resetForm,
-  } = useCarForm();
+  /* ============================
+     Trial countdown
+  ============================ */
+  useEffect(() => {
+    if (!trial?.is_on_trial || !trial.trial_end) return;
 
-  const {
-    galleryPreview,
-    galleryProgress,
-    selectGalleryFiles,
-    uploadAssets,
-    resetUploads,
-    setVideoFile,
-  } = useCarUploads();
+    const tick = () => {
+      const now = new Date();
+      const end = new Date(trial.trial_end);
 
-  const {
-    query: locationQuery,
-    setQuery: setLocationQuery,
-    suggestions,
-    isFetching,
-  } = useLocationSearch(import.meta.env.VITE_GEOAPIFY_API_KEY);
+      if (end <= now) return setRemainingTrial("Expired");
 
-  // ==================================================================
-  // MODAL CONTROL
-  // ==================================================================
-  const [openModal, setOpenModal] = useState(false);
+      const d = differenceInDays(end, now);
+      const h = differenceInHours(end, now) % 24;
+      const m = differenceInMinutes(end, now) % 60;
 
-  const openCreateModal = () => {
-    resetForm();
-    resetUploads();
-    setOpenModal(true);
+      if (d > 0) setRemainingTrial(`${d} day(s) left`);
+      else if (h > 0) setRemainingTrial(`${h} hour(s) left`);
+      else setRemainingTrial(`${m} minute(s) left`);
+    };
+
+    tick();
+    const i = setInterval(tick, 60000);
+    return () => clearInterval(i);
+  }, [trial]);
+
+  /* ============================
+     Save dealer profile
+  ============================ */
+  const saveDealerProfile = async () => {
+    if (!dealer) return;
+
+    await supabase
+      .from("dealers")
+      .update({
+        ...dealerForm,
+        status: "pending",
+        validation_message: null,
+      })
+      .eq("id", dealer.id);
+
+    toast({
+      title: "Profile submitted for verification",
+      description: "Admin will review your details",
+    });
+
+    setIsProfileOpen(false);
+    fetchData();
   };
 
-  const openEditModal = (listing: Listing) => {
-    startEdit(listing);
-    resetUploads();
-    setOpenModal(true);
-  };
-
-  // ==================================================================
-  // SUBMIT HANDLER
-  // ==================================================================
-  const handleDealerSubmit = async (e: React.FormEvent) => {
+  /* ============================
+     Submit vehicle
+  ============================ */
+  const submitCar = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!dealer) {
-      toast({ title: "Error", description: "Dealer info missing", variant: "destructive" });
+    if (!dealer) return;
+
+    setSavingCar(true);
+
+    const { error } = await supabase.from("cars").insert({
+      ...carForm,
+      dealer_id: dealer.id,
+      status: "pending",
+    });
+
+    setSavingCar(false);
+
+    if (error) {
+      toast({ title: "Error", description: error.message });
       return;
     }
 
-    try {
-      const { galleryUrls, videoUrl } = await uploadAssets();
+    toast({ title: "Vehicle submitted", description: "Pending approval" });
 
-      const payload = {
-        ...form,
-        dealer_id: dealer.id,
-        price: Number(form.price),
-        year: Number(form.year),
-        mileage: Number(form.mileage),
-        gallery: [...(form.gallery || []), ...galleryUrls],
-        video_url: videoUrl || "",
-      };
-
-      if (editId) {
-        // Update
-        await fetch(`/api/admin/cars/${editId}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-
-        toast({ title: "Updated", description: "Listing updated successfully" });
-      } else {
-        // Create
-        await fetch(`/api/admin/cars`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-
-        toast({ title: "Created", description: "Listing submitted for approval" });
-      }
-
-      resetForm();
-      resetUploads();
-      setOpenModal(false);
-      loadData();
-    } catch (error: any) {
-      console.error(error);
-      toast({ title: "Error", description: error.message, variant: "destructive" });
-    }
+    setIsCarDialogOpen(false);
+    setCarForm({});
+    setGalleryFiles([]);
+    setCarStep(1);
+    fetchData();
   };
 
-  // ==================================================================
-  // UI
-  // ==================================================================
+  if (isLoading) return <div className="p-10">Loading…</div>;
+
+  /* ============================
+     Render
+  ============================ */
   return (
-    <div className="p-6">
-      {/* HEADER */}
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          <Car size={22} />
-          Dealer Dashboard
-        </h1>
+    <div className="container mx-auto p-6">
+      {/* Header */}
+      <div className="flex justify-between items-center mb-4">
+        <h1 className="text-3xl font-bold">Dealer Dashboard</h1>
 
-        <Button onClick={openCreateModal}>
-          <Plus size={16} className="mr-2" /> New Listing
-        </Button>
-      </div>
+        <div className="flex gap-2">
+          {/* Add Vehicle */}
+          {dealer?.status === "verified" ? (
+            <Dialog open={isCarDialogOpen} onOpenChange={setIsCarDialogOpen}>
+              <DialogTrigger asChild>
+                <Button>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add Vehicle
+                </Button>
+              </DialogTrigger>
 
-      {/* LISTINGS */}
-      <div className="grid md:grid-cols-2 gap-4">
-        {listings.map((l) => (
-          <Card key={l.id} className="p-4">
-            <div className="flex justify-between">
-              <div>
-                <h2 className="font-bold text-lg">
-                  {l.make} {l.model}
-                </h2>
-                <p className="text-gray-600 text-sm">{l.year}</p>
-                <Badge className="mt-2">{l.status}</Badge>
-              </div>
+              <DialogContent className="max-w-3xl">
+                <DialogHeader>
+                  <DialogTitle>New Vehicle Listing</DialogTitle>
+                </DialogHeader>
 
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={() => openEditModal(l)}
-              >
-                <Edit size={16} />
+                <DealerCarForm
+                  step={carStep}
+                  setStep={setCarStep}
+                  form={carForm}
+                  setForm={setCarForm}
+                  errors={carErrors}
+                  galleryFiles={galleryFiles}
+                  setGalleryFiles={setGalleryFiles}
+                  existingGallery={[]}
+                  onSubmit={submitCar}
+                  loading={savingCar}
+                />
+              </DialogContent>
+            </Dialog>
+          ) : (
+            <Button variant="outline" disabled>
+              <Lock className="mr-2 h-4 w-4" />
+              Verify account to add vehicles
+            </Button>
+          )}
+
+          {/* Profile */}
+          <Dialog open={isProfileOpen} onOpenChange={setIsProfileOpen}>
+            <DialogTrigger asChild>
+              <Button variant="outline">
+                <User className="mr-2 h-4 w-4" /> Profile
               </Button>
-            </div>
-          </Card>
-        ))}
+            </DialogTrigger>
+
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Edit Dealer Profile</DialogTitle>
+              </DialogHeader>
+
+              {[
+                "full_name",
+                "company_name",
+                "phone",
+                "country",
+                "city",
+                "national_id",
+                "tax_id",
+                "company_logo",
+              ].map((f) => (
+                <div key={f} className="mb-3">
+                  <Label>{f.replace("_", " ")}</Label>
+                  <Input
+                    value={(dealerForm as any)[f] ?? ""}
+                    onChange={(e) =>
+                      setDealerForm({ ...dealerForm, [f]: e.target.value })
+                    }
+                  />
+                </div>
+              ))}
+
+              <Label>Email</Label>
+              <Input value={dealer?.email} disabled />
+
+              <Button onClick={saveDealerProfile} className="w-full mt-4">
+                <RefreshCw className="mr-2 h-4 w-4" />
+                Save & Resubmit
+              </Button>
+            </DialogContent>
+          </Dialog>
+        </div>
       </div>
 
-      {/* MAIN CAR FORM MODAL */}
-      <Dialog open={openModal} onOpenChange={setOpenModal}>
-        <DialogContent className="max-w-3xl">
-          <DialogHeader>
-            <DialogTitle>
-              {editId ? "Edit Listing" : "Create New Listing"}
-            </DialogTitle>
-            <DialogDescription>
-              Fill all the required details for your car listing.
-            </DialogDescription>
-          </DialogHeader>
+      {/* Status */}
+      <Card className="p-4 mb-4 border-l-4 border-yellow-500">
+        Status: <b>{dealer?.status}</b>
+        {dealer?.validation_message && ` — ${dealer.validation_message}`}
+      </Card>
 
-          <CarForm
-            form={form}
-            setForm={setForm}
-            loading={false}
-            editMode={!!editId}
-            galleryPreview={galleryPreview}
-            setGalleryFiles={selectGalleryFiles}
-            galleryProgress={galleryProgress}
-            locationQuery={locationQuery}
-            setLocationQuery={setLocationQuery}
-            suggestions={suggestions}
-            onSelectSuggestion={(place: any) => {
-              setForm({ ...form, location: place.formatted });
-              setLocationQuery(place.formatted);
-            }}
-            onSubmit={handleDealerSubmit}
-            onCancelEdit={() => {
-              resetForm();
-              resetUploads();
-              setOpenModal(false);
-            }}
-          />
-        </DialogContent>
-      </Dialog>
+      {/* Tabs */}
+      <Tabs defaultValue="listings">
+        <TabsList>
+          <TabsTrigger value="listings">Listings</TabsTrigger>
+          <TabsTrigger value="analytics" disabled={dealer?.status !== "verified"}>
+            Analytics
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="listings">
+          <div className="grid gap-4 mt-4">
+            {listings.map((l) => (
+              <Card key={l.id} className="p-4 flex justify-between">
+                <div>
+                  <h3 className="font-semibold">
+                    {l.make} {l.model}
+                  </h3>
+                  <Badge>{l.status}</Badge>
+                </div>
+                <Button variant="outline">
+                  <Edit className="mr-2" /> Edit
+                </Button>
+              </Card>
+            ))}
+          </div>
+        </TabsContent>
+
+        <TabsContent value="analytics">
+          <DealerAnalytics />
+          <DealerViewsOverTime />
+        </TabsContent>
+      </Tabs>
     </div>
   );
-}
+};
+
+export default DealerDashboard;
