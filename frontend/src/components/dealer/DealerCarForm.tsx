@@ -10,7 +10,8 @@ import { useAuth } from "@/hooks/useAuth";
 import CarMediaUploader from "@/components/CarMediaUploader";
 import { useCarDraft } from "@/hooks/useCarDraft";
 import { clearCarDraft, loadCarDraft } from "@/utils/carDraft";
-const API_BASE = (import.meta.env.VITE_BACKEND_URL as string);
+
+const API_BASE = import.meta.env.VITE_BACKEND_URL as string;
 
 const CONDITIONS = ["new", "used", "imported", "good"];
 const TRANSMISSIONS = ["manual", "automatic"];
@@ -29,7 +30,6 @@ const DealerCarForm: React.FC<Props> = ({
   setStep,
   form,
   setForm,
-  errors,
   isEdit,
 }) => {
   const { user, isLoading } = useAuth();
@@ -39,7 +39,7 @@ const DealerCarForm: React.FC<Props> = ({
   const update = (k: string, v: any) =>
     setForm((p: any) => ({ ...p, [k]: v }));
 
-  // Load draft if available
+  /* -------------------- Load Draft -------------------- */
   useEffect(() => {
     if (!user || isEdit) return;
     const draft = loadCarDraft(user.id);
@@ -48,15 +48,24 @@ const DealerCarForm: React.FC<Props> = ({
 
   useCarDraft(user?.id, form);
 
+  /* -------------------- Step Guards -------------------- */
   const canProceedStep1 =
     form.make && form.model && form.year && form.mileage && form.condition;
-  const canProceedStep2 =
-    form.description && form.gallery?.length > 0;
 
+  const canProceedStep2 =
+    form.description && Array.isArray(form.gallery) && form.gallery.length > 0;
+
+  /* -------------------- Submit -------------------- */
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
     if (!user) {
       setSubmitError("User not authenticated");
+      return;
+    }
+
+    if (!form.price || !form.location || !form.phone) {
+      setSubmitError("Please complete all required fields before submitting");
       return;
     }
 
@@ -64,7 +73,7 @@ const DealerCarForm: React.FC<Props> = ({
     setSubmitError("");
 
     try {
-      const { data, error } = await fetch(`${API_BASE}/cars`, {
+      const res = await fetch(`${API_BASE}/cars`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -72,19 +81,22 @@ const DealerCarForm: React.FC<Props> = ({
         },
         body: JSON.stringify({
           ...form,
-          dealer_id: user.id,
-          status: "pending",
+          status: "pending", // dealer_id should come from JWT on backend
         }),
-      }).then((res) => res.json());
+      });
 
-      if (error) throw new Error(error.message || "Failed to submit car");
+      const result = await res.json();
+
+      if (!res.ok) {
+        throw new Error(result.error || result.message || "Failed to submit car");
+      }
 
       clearCarDraft(user.id);
       alert("Car submitted successfully!");
       setForm({});
       setStep(1);
     } catch (err: any) {
-      console.error(err);
+      console.error("Car submit error:", err);
       setSubmitError(err.message || "Failed to submit car");
     } finally {
       setLoading(false);
@@ -198,7 +210,7 @@ const DealerCarForm: React.FC<Props> = ({
               <div key={img} className="relative">
                 <img
                   src={img}
-                  className="w-full h-24 sm:h-28 md:h-32 object-cover rounded"
+                  className="w-full h-24 object-cover rounded"
                 />
                 <X
                   className="absolute top-1 right-1 bg-white rounded cursor-pointer"

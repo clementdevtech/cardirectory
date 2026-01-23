@@ -18,15 +18,6 @@ const {
   ZOHO_MAIL_HOST,
 } = process.env;
 
-console.log("🚀 Zoho Mail Config:", {
-  ZOHO_CLIENT_ID,
-  ZOHO_CLIENT_SECRET,
-  ZOHO_REFRESH_TOKEN,
-  ZOHO_FROM,
-  ZOHO_ACCOUNTS_HOST,
-  ZOHO_MAIL_HOST,
-});
-
 /* ------------------------------------------------------------
    Zoho Endpoints
 ------------------------------------------------------------- */
@@ -51,7 +42,7 @@ const safeJson = (data: any) => {
    GET ACCESS TOKEN
 ------------------------------------------------------------- */
 const getZohoAccessToken = async (): Promise<string> => {
-  console.log("Fetching Zoho access token...");
+  //console.log("Fetching Zoho access token...");
   if (cachedToken) return cachedToken;
 
   try {
@@ -71,7 +62,7 @@ const getZohoAccessToken = async (): Promise<string> => {
     }
     
     cachedToken = res.data.access_token;
-    console.log("✅ Zoho access token fetched.");
+    //console.log("✅ Zoho access token fetched.");
     return cachedToken;
   } catch (err: any) {
     console.error("❌ Failed to refresh token:", safeJson(err.response?.data || err));
@@ -83,7 +74,7 @@ const getZohoAccessToken = async (): Promise<string> => {
    GET ACCOUNT ID
 ------------------------------------------------------------- */
 const getZohoAccountId = async (token: string): Promise<string> => {
-  console.log("Fetching Zoho accountId...");
+  //console.log("Fetching Zoho accountId...");
   if (cachedAccountId) return cachedAccountId;
 
   try {
@@ -95,7 +86,7 @@ const getZohoAccountId = async (token: string): Promise<string> => {
     if (!accountId) throw new Error("No Zoho accountId found.");
 
     cachedAccountId = String(accountId);
-    console.log("✅ Zoho accountId fetched:", cachedAccountId);
+    //console.log("✅ Zoho accountId fetched:", cachedAccountId);
     return cachedAccountId;
   } catch (err: any) {
     console.error("❌ Failed to fetch Zoho accountId:", safeJson(err.response?.data || err));

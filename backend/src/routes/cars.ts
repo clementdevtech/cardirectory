@@ -4,10 +4,13 @@ import { verifyAuth } from "../middleware/requireAuth";
 
 const router = Router();
 
-// POST /api/cars - create a new car listing
+/* =========================================================
+   POST /api/cars – Create car listing
+========================================================= */
 router.post("/", verifyAuth, async (req: any, res) => {
   try {
-    const userId = req.user.id; // from verifyAuth
+    const userId = req.user.id;
+
     const {
       make,
       model,
@@ -23,51 +26,174 @@ router.post("/", verifyAuth, async (req: any, res) => {
       phone,
     } = req.body;
 
-    if (!make || !model || !year || !price || !mileage || !condition) {
-      return res.status(400).json({ error: "Missing required fields" });
+    /* ---------- Validation ---------- */
+    if (
+      !make ||
+      !model ||
+      !year ||
+      !price ||
+      !mileage ||
+      !condition ||
+      !Array.isArray(gallery) ||
+      gallery.length === 0
+    ) {
+      return res.status(400).json({
+        error: "Missing or invalid required fields",
+      });
     }
 
-    // 1️⃣ Fetch dealer_id for this user
+    /* ---------- Get dealer ---------- */
     const dealerResult = await query(
       `SELECT id FROM dealers WHERE user_id = $1`,
       [userId]
     );
 
     if (!dealerResult.rows.length) {
-      return res
-        .status(400)
-        .json({ error: "No dealer found for this user. Contact admin." });
+      return res.status(403).json({
+        error: "You are not registered as a dealer",
+      });
     }
 
     const dealerId = dealerResult.rows[0].id;
 
-    // 2️⃣ Insert car using the dealer_id
+    /* ---------- Insert ---------- */
     const { rows } = await query(
-      `INSERT INTO cars
-      (make, model, year, price, mileage, location, description, condition, gallery, video_url, transmission, phone, dealer_id, status)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'pending')
-      RETURNING *`,
+      `
+      INSERT INTO cars (
+        make, model, year, price, mileage, location,
+        description, condition, gallery, video_url,
+        transmission, phone, dealer_id, status
+      )
+      VALUES (
+        $1,$2,$3,$4,$5,$6,
+        $7,$8,$9,$10,
+        $11,$12,$13,'pending'
+      )
+      RETURNING *
+      `,
       [
         make,
         model,
         year,
         price,
         mileage,
-        location || null,
-        description || null,
+        location ?? null,
+        description ?? null,
         condition,
-        gallery || [],
-        video_url || null,
-        transmission || null,
-        phone || null,
-        dealerId, // use correct dealer id
+        gallery,
+        video_url ?? null,
+        transmission ?? null,
+        phone ?? null,
+        dealerId,
       ]
     );
 
-    return res.status(201).json(rows[0]);
+    res.status(201).json({
+      message: "Car submitted successfully",
+      car: rows[0],
+    });
   } catch (err: any) {
-    console.error(err);
-    res.status(500).json({ error: err.message });
+    console.error("CREATE CAR ERROR:", err);
+    res.status(500).json({
+      error: "Failed to create car listing",
+    });
+  }
+});
+
+/* =========================================================
+   PUT /api/cars/:id – Edit car listing
+========================================================= */
+router.put("/:id", verifyAuth, async (req: any, res) => {
+  try {
+    const userId = req.user.id;
+    const carId = req.params.id;
+
+    const {
+      make,
+      model,
+      year,
+      price,
+      mileage,
+      location,
+      description,
+      condition,
+      gallery,
+      video_url,
+      transmission,
+      phone,
+    } = req.body;
+
+    /* ---------- Find dealer ---------- */
+    const dealerResult = await query(
+      `SELECT id FROM dealers WHERE user_id = $1`,
+      [userId]
+    );
+
+    if (!dealerResult.rows.length) {
+      return res.status(403).json({ error: "Not a dealer" });
+    }
+
+    const dealerId = dealerResult.rows[0].id;
+
+    /* ---------- Ownership check ---------- */
+    const carCheck = await query(
+      `SELECT id FROM cars WHERE id = $1 AND dealer_id = $2`,
+      [carId, dealerId]
+    );
+
+    if (!carCheck.rows.length) {
+      return res.status(404).json({
+        error: "Car not found or not owned by you",
+      });
+    }
+
+    /* ---------- Update ---------- */
+    const { rows } = await query(
+      `
+      UPDATE cars SET
+        make = $1,
+        model = $2,
+        year = $3,
+        price = $4,
+        mileage = $5,
+        location = $6,
+        description = $7,
+        condition = $8,
+        gallery = $9,
+        video_url = $10,
+        transmission = $11,
+        phone = $12,
+        status = 'pending',
+        updated_at = NOW()
+      WHERE id = $13
+      RETURNING *
+      `,
+      [
+        make,
+        model,
+        year,
+        price,
+        mileage,
+        location ?? null,
+        description ?? null,
+        condition,
+        gallery ?? [],
+        video_url ?? null,
+        transmission ?? null,
+        phone ?? null,
+        carId,
+      ]
+    );
+
+    res.json({
+      message: "Car updated successfully",
+      car: rows[0],
+    });
+  } catch (err) {
+    console.error("UPDATE CAR ERROR:", err);
+    res.status(500).json({
+      error: "Failed to update car",
+    });
   }
 });
 
