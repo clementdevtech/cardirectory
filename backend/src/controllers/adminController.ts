@@ -1,20 +1,35 @@
 import { Request, Response } from "express";
-import { query, pool } from "../db";
+import { query } from "../db";
 import bcrypt from "bcryptjs";
 import { v4 as uuidv4 } from "uuid";
 import { sendZohoMail } from "./emailController";
 import { uploadLogoToR2 } from "../utils/cloudflareUpload";
-import { console } from "inspector";
 
-// 🚗 Fetch all cars with dealer info
+/* ======================================================
+   INTERNAL: subscription + grace + override enforcement
+====================================================== */
+const ensureDealerActive = async (dealerId: string) => {
+  const { rows } = await query(
+    `SELECT dealer_has_active_access($1) AS allowed`,
+    [dealerId]
+  );
+
+  return rows[0]?.allowed === true;
+};
+
+/* ======================================================
+   🚗 Fetch all cars with dealer info (PUBLIC)
+====================================================== */
 export const getAllCars = async (req: Request, res: Response) => {
   try {
     const result = await query(`
       SELECT c.*, d.full_name AS dealer_name, d.company_name
       FROM cars c
       LEFT JOIN dealers d ON c.dealer_id = d.id
+      WHERE d.status = 'verified'
       ORDER BY c.created_at DESC
     `);
+
     res.json(result.rows);
   } catch (err: any) {
     console.error("❌ getAllCars:", err.message);
@@ -22,10 +37,14 @@ export const getAllCars = async (req: Request, res: Response) => {
   }
 };
 
-// 👤 Fetch all dealers
+/* ======================================================
+   👤 Fetch all dealers (ADMIN)
+====================================================== */
 export const getAllDealers = async (req: Request, res: Response) => {
   try {
-    const result = await query(`SELECT * FROM dealers ORDER BY created_at DESC`);
+    const result = await query(
+      `SELECT * FROM dealers ORDER BY created_at DESC`
+    );
     res.json(result.rows);
   } catch (err: any) {
     console.error("❌ getAllDealers:", err.message);
@@ -33,9 +52,20 @@ export const getAllDealers = async (req: Request, res: Response) => {
   }
 };
 
-// 🏁 Add new car
+/* ======================================================
+   🏁 Add new car (ENFORCED)
+====================================================== */
 export const addCar = async (req: Request, res: Response) => {
   try {
+    const dealerId = req.body.dealer_id;
+
+    if (!(await ensureDealerActive(dealerId))) {
+      return res.status(402).json({
+        error: "Subscription expired",
+        redirect: "/pricing",
+      });
+    }
+
     const {
       make,
       model,
@@ -51,13 +81,12 @@ export const addCar = async (req: Request, res: Response) => {
       video_url,
       transmission,
       phone,
-      dealer_id,
     } = req.body;
 
     const result = await query(
       `INSERT INTO cars
-        (make, model, year, price, mileage, location, description, condition,
-         featured, status, gallery, video_url, transmission, phone, dealer_id, created_at)
+       (make, model, year, price, mileage, location, description, condition,
+        featured, status, gallery, video_url, transmission, phone, dealer_id, created_at)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,NOW())
        RETURNING *`,
       [
@@ -70,12 +99,12 @@ export const addCar = async (req: Request, res: Response) => {
         description,
         condition,
         featured,
-        status || "active",
+        status || "pending",
         gallery || [],
         video_url,
         transmission,
         phone,
-        dealer_id,
+        dealerId,
       ]
     );
 
@@ -89,11 +118,22 @@ export const addCar = async (req: Request, res: Response) => {
   }
 };
 
-// 🧾 Update existing car
+/* ======================================================
+   🧾 Update existing car (ENFORCED)
+====================================================== */
 export const updateCar = async (req: Request, res: Response) => {
   try {
+    const dealerId = req.body.dealer_id;
+    if (!(await ensureDealerActive(dealerId))) {
+      return res.status(402).json({
+        error: "Subscription expired",
+        redirect: "/pricing",
+      });
+    }
+
     const { id } = req.params;
     const fields = req.body;
+    delete fields.dealer_id;
 
     const keys = Object.keys(fields);
     if (keys.length === 0)
@@ -102,7 +142,12 @@ export const updateCar = async (req: Request, res: Response) => {
     const setClause = keys.map((k, i) => `${k}=$${i + 1}`).join(", ");
     const values = Object.values(fields);
 
-    const sql = `UPDATE cars SET ${setClause} WHERE id=$${keys.length + 1} RETURNING *`;
+    const sql = `
+      UPDATE cars SET ${setClause}
+      WHERE id=$${keys.length + 1}
+      RETURNING *
+    `;
+
     const result = await query(sql, [...values, id]);
 
     res.json({
@@ -115,11 +160,22 @@ export const updateCar = async (req: Request, res: Response) => {
   }
 };
 
-// ❌ Delete car
+/* ======================================================
+   ❌ Delete car (ENFORCED)
+====================================================== */
 export const deleteCar = async (req: Request, res: Response) => {
   try {
+    const dealerId = req.body.dealer_id;
+    if (!(await ensureDealerActive(dealerId))) {
+      return res.status(402).json({
+        error: "Subscription expired",
+        redirect: "/pricing",
+      });
+    }
+
     const { id } = req.params;
-    await query("DELETE FROM cars WHERE id=$1", [id]);
+    await query(`DELETE FROM cars WHERE id=$1`, [id]);
+
     res.json({ message: "✅ Car deleted successfully" });
   } catch (err: any) {
     console.error("❌ deleteCar:", err.message);
@@ -127,9 +183,19 @@ export const deleteCar = async (req: Request, res: Response) => {
   }
 };
 
-// 🌟 Toggle featured
+/* ======================================================
+   🌟 Toggle featured (ENFORCED)
+====================================================== */
 export const toggleFeatured = async (req: Request, res: Response) => {
   try {
+    const dealerId = req.body.dealer_id;
+    if (!(await ensureDealerActive(dealerId))) {
+      return res.status(402).json({
+        error: "Subscription expired",
+        redirect: "/pricing",
+      });
+    }
+
     const { id } = req.params;
     const { featured } = req.body;
 
@@ -150,7 +216,9 @@ export const toggleFeatured = async (req: Request, res: Response) => {
   }
 };
 
-// ✅ Approve / ❌ Reject
+/* ======================================================
+   ✅ Approve / ❌ Reject (ADMIN)
+====================================================== */
 export const updateStatus = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
@@ -171,9 +239,19 @@ export const updateStatus = async (req: Request, res: Response) => {
   }
 };
 
-// 🖼️ Replace gallery
+/* ======================================================
+   🖼️ Replace gallery (ENFORCED)
+====================================================== */
 export const replaceGallery = async (req: Request, res: Response) => {
   try {
+    const dealerId = req.body.dealer_id;
+    if (!(await ensureDealerActive(dealerId))) {
+      return res.status(402).json({
+        error: "Subscription expired",
+        redirect: "/pricing",
+      });
+    }
+
     const { id } = req.params;
     const { gallery } = req.body;
 
@@ -192,10 +270,10 @@ export const replaceGallery = async (req: Request, res: Response) => {
   }
 };
 
-// 👤 Add dealer
-export const addDealer = async (req, res) => {
-  console.log("🚀 addDealer called with body:", req.body);
-
+/* ======================================================
+   👤 Add dealer (ADMIN)
+====================================================== */
+export const addDealer = async (req: Request, res: Response) => {
   try {
     const { full_name, email, company_name, phone, country, logo } = req.body;
 
@@ -203,36 +281,33 @@ export const addDealer = async (req, res) => {
       return res.status(400).json({ message: "All fields are required." });
     }
 
-    // 1️⃣ Check if user already exists
-    const existing = await query("SELECT * FROM users WHERE email = $1", [email]);
+    const existing = await query(
+      `SELECT 1 FROM users WHERE email=$1`,
+      [email]
+    );
     if (existing.rows.length > 0) {
       return res.status(400).json({ message: "Email already in use." });
     }
 
-    // 2️⃣ Generate and hash password
-    const defaultPassword = Math.random().toString(36).slice(-10);
-    const hashed = await bcrypt.hash(defaultPassword, 10);
+    const password = Math.random().toString(36).slice(-10);
+    const hashed = await bcrypt.hash(password, 10);
 
-    // 3️⃣ Upload Logo to R2 → stored in company_logo column
-    let companyLogoUrl = null;
-    if (logo) {
-      companyLogoUrl = await uploadLogoToR2(logo); // base64 from frontend
-    }
+    const logoUrl = logo ? await uploadLogoToR2(logo) : "default_logo.png";
 
-    // 4️⃣ Create User entry
     const userId = uuidv4();
+    const dealerId = uuidv4();
+
     await query(
-      `INSERT INTO users (id, full_name, email, password, role, is_verified, created_at)
-       VALUES ($1, $2, $3, $4, 'dealer', true, NOW())`,
+      `INSERT INTO users
+       (id, full_name, email, password, role, is_verified, created_at)
+       VALUES ($1,$2,$3,$4,'dealer',true,NOW())`,
       [userId, full_name, email, hashed]
     );
 
-    // 5️⃣ Create Dealer entry (MATCHES YOUR SCHEMA)
-    const dealerId = uuidv4();
-    const dealerResult = await query(
+    const dealer = await query(
       `INSERT INTO dealers
        (id, user_id, full_name, company_name, email, phone, country, company_logo, status, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'verified', NOW())
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'verified',NOW())
        RETURNING *`,
       [
         dealerId,
@@ -242,40 +317,35 @@ export const addDealer = async (req, res) => {
         email,
         phone,
         country,
-        companyLogoUrl || "default_logo.png"
+        logoUrl,
       ]
     );
 
-    // 6️⃣ Compose email
-    const emailBody = `
+    await sendZohoMail(
+      email,
+      "Your Dealer Account Login",
+      `
       Hello ${full_name},<br/><br/>
-      Your dealer account has been created.<br/><br/>
+      <b>Email:</b> ${email}<br/>
+      <b>Password:</b> ${password}<br/><br/>
+      Please change your password immediately.<br/><br/>
+      Auto Directory Team
+      `
+    );
 
-      <b>Login Email:</b> ${email}<br/>
-      <b>Temporary Password:</b> ${defaultPassword}<br/><br/>
-
-      Please log in and change your password immediately.<br/><br/>
-      Thank you,<br/>
-      <b>Auto Directory Team</b>
-    `;
-
-    // 7️⃣ Send email
-    await sendZohoMail(email, "Your Dealer Account Login", emailBody);
-
-    //8️⃣ Final response
     res.status(201).json({
-      message: "Dealer created and login credentials sent.",
-      dealer: dealerResult.rows[0],
+      message: "Dealer created and credentials sent",
+      dealer: dealer.rows[0],
     });
-
-  } catch (err) {
-    console.error("❌ addDealer Error:", err);
+  } catch (err: any) {
+    console.error("❌ addDealer:", err.message);
     res.status(500).json({ error: err.message });
   }
 };
 
-
-// ❌ Delete dealer
+/* ======================================================
+   ❌ Delete dealer (ADMIN)
+====================================================== */
 export const deleteDealer = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
@@ -287,22 +357,20 @@ export const deleteDealer = async (req: Request, res: Response) => {
   }
 };
 
-/*
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME!,
-  api_key: process.env.CLOUDINARY_API_KEY!,
-  api_secret: process.env.CLOUDINARY_API_SECRET!,
-});
+/* ======================================================
+   🛡️ Admin override toggle
+====================================================== */
+export const toggleAdminOverride = async (req: Request, res: Response) => {
+  const { dealerId, enabled } = req.body;
 
-export const uploadToCloudinary = async (req: Request, res: Response) => {
-  try {
-    const file = req.body.file; // base64 or remote URL
-    const result = await cloudinary.uploader.upload(file, {
-      folder: "cardirectory",
-      resource_type: "auto",
-    });
-    res.json({ message: "✅ Uploaded successfully", url: result.secure_url });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-};*/
+  await query(
+    `UPDATE dealers SET admin_override=$1 WHERE id=$2`,
+    [enabled, dealerId]
+  );
+
+  res.json({
+    message: enabled
+      ? "Dealer override enabled"
+      : "Dealer override disabled",
+  });
+};

@@ -21,7 +21,6 @@ import { Label } from "@/components/ui/label";
 import DealerCarForm from "@/components/dealer/DealerCarForm";
 import DealerAnalytics from "@/components/dealer/DealerAnalytics";
 import DealerViewsOverTime from "@/components/dealer/DealerViewsOverTime";
-import { useDealerNotifications } from "@/utils/useDealerNotifications";
 
 import {
   Plus,
@@ -57,10 +56,17 @@ interface Dealer {
   validation_message?: string | null;
 }
 
-interface UserTrial {
+interface UserBilling {
   is_on_trial: boolean;
   trial_end: string | null;
 }
+
+interface DealerSubscription {
+  end_date: string;
+  listing_limit: number;
+  status: "active" | "expired" | "grace";
+}
+
 
 interface Listing {
   id: number;
@@ -81,9 +87,16 @@ const DealerDashboard: React.FC = () => {
 
   const [dealer, setDealer] = useState<Dealer | null>(null);
   const [dealerForm, setDealerForm] = useState<Partial<Dealer>>({});
-  const [trial, setTrial] = useState<UserTrial | null>(null);
+  
+  const [billing, setBilling] = useState<UserBilling | null>(null);
+  const [dealerSub, setDealerSub] = useState<DealerSubscription | null>(null);
+
   const [listings, setListings] = useState<Listing[]>([]);
-  const [remainingTrial, setRemainingTrial] = useState("");
+
+  const [billingMessage, setBillingMessage] = useState<string | null>(null);
+  const [billingVariant, setBillingVariant] = useState<
+    "default" | "warning" | "destructive"
+  >("default");
 
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isCarDialogOpen, setIsCarDialogOpen] = useState(false);
@@ -105,7 +118,7 @@ const DealerDashboard: React.FC = () => {
   const [savingCar, setSavingCar] = useState(false);
 
   /* ============================
-     Guard
+     Guard: auth + role
   ============================ */
   useEffect(() => {
     if (!isLoading && (!user || (user as any).role !== "dealer")) {
@@ -130,13 +143,25 @@ const DealerDashboard: React.FC = () => {
     setDealer(dealer);
     setDealerForm(dealer);
 
-    const { data: trial } = await supabase
-      .from("users")
-      .select("is_on_trial, trial_end")
-      .eq("id", user.id)
-      .single();
+    // 🔹 User billing (trial info)
+const { data: billing } = await supabase
+  .from("users")
+  .select("is_on_trial, trial_end")
+  .eq("id", user.id)
+  .single();
 
-    setTrial(trial);
+setBilling(billing);
+
+// 🔹 Dealer subscription (REAL source of listing_limit)
+const { data: dealerSub } = await supabase
+  .from("dealer_subscriptions")
+  .select("end_date, listing_limit, status")
+  .eq("dealer_id", dealer.id)
+  .eq("status", "active")
+  .maybeSingle();
+
+setDealerSub(dealerSub);
+
 
     const { data: cars } = await supabase
       .from("cars")
@@ -152,30 +177,80 @@ const DealerDashboard: React.FC = () => {
   }, [fetchData]);
 
   /* ============================
-     Trial countdown
+     Billing enforcement (HARD)
   ============================ */
   useEffect(() => {
-    if (!trial?.is_on_trial || !trial.trial_end) return;
+  const now = new Date();
 
-    const tick = () => {
-      const now = new Date();
-      const end = new Date(trial.trial_end);
+  if (billing?.is_on_trial && billing.trial_end) {
+    if (new Date(billing.trial_end) <= now) {
+      navigate("/pricing", { replace: true });
+    }
+  }
 
-      if (end <= now) return setRemainingTrial("Expired");
+  if (dealerSub?.end_date) {
+    if (new Date(dealerSub.end_date) <= now) {
+      navigate("/pricing", { replace: true });
+    }
+  }
+}, [billing, dealerSub, navigate]);
+
+
+/* ============================
+   Reminder banner logic (FIXED)
+============================ */
+useEffect(() => {
+  const tick = () => {
+    const now = new Date();
+
+    // 🔹 Trial reminder
+    if (billing?.is_on_trial && billing.trial_end) {
+      const end = new Date(billing.trial_end);
 
       const d = differenceInDays(end, now);
       const h = differenceInHours(end, now) % 24;
       const m = differenceInMinutes(end, now) % 60;
 
-      if (d > 0) setRemainingTrial(`${d} day(s) left`);
-      else if (h > 0) setRemainingTrial(`${h} hour(s) left`);
-      else setRemainingTrial(`${m} minute(s) left`);
-    };
+      if (d <= 3 && d >= 0) {
+        setBillingVariant("warning");
+        setBillingMessage(
+          `Your free trial ends in ${
+            d > 0 ? `${d} day(s)` : h > 0 ? `${h} hour(s)` : `${m} minute(s)`
+          }`
+        );
+      } else {
+        setBillingMessage(null);
+      }
 
-    tick();
-    const i = setInterval(tick, 60000);
-    return () => clearInterval(i);
-  }, [trial]);
+      return;
+    }
+
+    // 🔹 Paid subscription reminder
+    if (dealerSub?.end_date) {
+      const end = new Date(dealerSub.end_date);
+      const d = differenceInDays(end, now);
+
+      if (d <= 7 && d >= 0) {
+        setBillingVariant("warning");
+        setBillingMessage(`Subscription expires in ${d} day(s).`);
+      } else {
+        setBillingMessage(null);
+      }
+    }
+  };
+
+  tick();
+  const interval = setInterval(tick, 60_000);
+  return () => clearInterval(interval);
+}, [billing, dealerSub]);
+
+  /* ============================
+     Listing limit enforcement
+  ============================ */
+  const listingLimitReached =
+  dealerSub &&
+  dealerSub.listing_limit !== null &&
+  listings.length >= dealerSub.listing_limit;
 
   /* ============================
      Save dealer profile
@@ -208,6 +283,15 @@ const DealerDashboard: React.FC = () => {
     e.preventDefault();
     if (!dealer) return;
 
+    if (listingLimitReached) {
+      toast({
+        title: "Listing limit reached",
+        description: "Upgrade your plan to add more vehicles.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setSavingCar(true);
 
     const { error } = await supabase.from("cars").insert({
@@ -232,7 +316,7 @@ const DealerDashboard: React.FC = () => {
     fetchData();
   };
 
-  if (isLoading) return <div className="p-10">Loading…</div>;
+  if (isLoading || !dealer) return <div className="p-10">Loading…</div>;
 
   /* ============================
      Render
@@ -244,8 +328,7 @@ const DealerDashboard: React.FC = () => {
         <h1 className="text-3xl font-bold">Dealer Dashboard</h1>
 
         <div className="flex gap-2">
-          {/* Add Vehicle */}
-          {dealer?.status === "verified" ? (
+          {dealer.status === "verified" && !listingLimitReached ? (
             <Dialog open={isCarDialogOpen} onOpenChange={setIsCarDialogOpen}>
               <DialogTrigger asChild>
                 <Button>
@@ -271,16 +354,21 @@ const DealerDashboard: React.FC = () => {
                   onSubmit={submitCar}
                   loading={savingCar}
                 />
+
               </DialogContent>
             </Dialog>
           ) : (
-            <Button variant="outline" disabled>
+            <Button
+              variant="outline"
+              onClick={() => navigate("/pricing")}
+            >
               <Lock className="mr-2 h-4 w-4" />
-              Verify account to add vehicles
+              {listingLimitReached
+                ? "Listing limit reached"
+                : "Verify account to add vehicles"}
             </Button>
           )}
 
-          {/* Profile */}
           <Dialog open={isProfileOpen} onOpenChange={setIsProfileOpen}>
             <DialogTrigger asChild>
               <Button variant="outline">
@@ -315,7 +403,7 @@ const DealerDashboard: React.FC = () => {
               ))}
 
               <Label>Email</Label>
-              <Input value={dealer?.email} disabled />
+              <Input value={dealer.email} disabled />
 
               <Button onClick={saveDealerProfile} className="w-full mt-4">
                 <RefreshCw className="mr-2 h-4 w-4" />
@@ -326,17 +414,32 @@ const DealerDashboard: React.FC = () => {
         </div>
       </div>
 
+      {/* Billing Reminder */}
+      {billingMessage && (
+        <Card className="p-4 mb-4 border-l-4 border-yellow-500 bg-yellow-50">
+          <div className="flex justify-between items-center">
+            <div className="flex items-center gap-2">
+              <Bell className="h-4 w-4" />
+              <span className="font-medium">{billingMessage}</span>
+            </div>
+            <Button size="sm" onClick={() => navigate("/pricing")}>
+              Upgrade
+            </Button>
+          </div>
+        </Card>
+      )}
+
       {/* Status */}
       <Card className="p-4 mb-4 border-l-4 border-yellow-500">
-        Status: <b>{dealer?.status}</b>
-        {dealer?.validation_message && ` — ${dealer.validation_message}`}
+        Status: <b>{dealer.status}</b>
+        {dealer.validation_message && ` — ${dealer.validation_message}`}
       </Card>
 
       {/* Tabs */}
       <Tabs defaultValue="listings">
         <TabsList>
           <TabsTrigger value="listings">Listings</TabsTrigger>
-          <TabsTrigger value="analytics" disabled={dealer?.status !== "verified"}>
+          <TabsTrigger value="analytics" disabled={dealer.status !== "verified"}>
             Analytics
           </TabsTrigger>
         </TabsList>
