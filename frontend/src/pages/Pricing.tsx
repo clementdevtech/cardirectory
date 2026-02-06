@@ -9,14 +9,14 @@ import { motion } from "framer-motion";
 const fallbackPlans = [
   {
     name: "Starter",
-    price: 640,
-    duration: "14 days",
+    price: 2500,
+    duration: "30 days",
     icon: <Star className="h-6 w-6 text-primary" />,
     features: ["2 active listings", "Improved visibility", "Image uploads"],
   },
   {
     name: "Advanced",
-    price: 1250,
+    price: 5500,
     duration: "30 days",
     popular: true,
     icon: <Zap className="h-6 w-6 text-primary" />,
@@ -28,8 +28,8 @@ const fallbackPlans = [
   },
   {
     name: "Business",
-    price: 5500,
-    duration: "90 days",
+    price: 55000,
+    duration: "30 days",
     icon: <Trophy className="h-6 w-6 text-primary" />,
     features: [
       "30 listings",
@@ -40,15 +40,15 @@ const fallbackPlans = [
   },
   {
     name: "Standard Plus",
-    price: 2500,
-    duration: "45 days",
+    price: 150000,
+    duration: "60 days",
     icon: <Rocket className="h-6 w-6 text-primary" />,
-    features: ["10 listings", "Featured for 5 days", "Media uploads"],
+    features: ["100 listings", "Featured for 5 days", "Media uploads"],
   },
   {
     name: "Enterprise",
-    price: 12000,
-    duration: "180 days",
+    price: 120000,
+    duration: "60 days",
     icon: <Briefcase className="h-6 w-6 text-primary" />,
     features: [
       "100 listings",
