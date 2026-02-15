@@ -73,7 +73,7 @@ const DealerCarForm: React.FC<Props> = ({
     setSubmitError("");
 
     try {
-      const res = await fetch(`${API_BASE}/cars`, {
+      const res = await fetch(`${API_BASE}/admin/cars`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
