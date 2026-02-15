@@ -1,11 +1,13 @@
 import { Router } from "express";
 import { query } from "../db";
+import { verifyAuth } from "../middleware/requireAuth";
+
 const router = Router();
 
 /* =========================================================
    POST /api/cars – Create car listing
 ========================================================= */
-router.post("/", async (req: any, res) => {
+router.post("/", verifyAuth, async (req: any, res) => {
   try {
     const userId = req.user.id;
 
@@ -101,7 +103,7 @@ router.post("/", async (req: any, res) => {
 /* =========================================================
    PUT /api/cars/:id – Edit car listing
 ========================================================= */
-router.put("/:id", async (req: any, res) => {
+router.put("/:id", verifyAuth, async (req: any, res) => {
   try {
     const userId = req.user.id;
     const carId = req.params.id;
