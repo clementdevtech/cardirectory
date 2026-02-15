@@ -11,31 +11,21 @@ if (!JWT_SECRET) {
 }
 
 /* ======================================================
-   🔐 Extend Express Request Type
-====================================================== */
-export interface AuthRequest extends Request {
-  user?: {
-    id: string;
-    email: string;
-    role: string;
-  };
-}
-
-
-/* ======================================================
    🔐 REQUIRE AUTH (JWT)
 ====================================================== */
 export const requireAuth = (
-  req: AuthRequest,
+  req: Request,
   res: Response,
   next: NextFunction
 ) => {
   try {
-    // 1️⃣ Get token from Authorization header or cookie
-    const bearerToken = req.headers.authorization?.startsWith("Bearer ")
-      ? req.headers.authorization.split(" ")[1]
-      : null;
+    // 1️⃣ Get token from Authorization header
+    const bearerToken =
+      req.headers.authorization?.startsWith("Bearer ")
+        ? req.headers.authorization.split(" ")[1]
+        : null;
 
+    // 2️⃣ Or from cookie
     const token = bearerToken || req.cookies?.auth_token;
 
     if (!token) {
@@ -45,8 +35,12 @@ export const requireAuth = (
       });
     }
 
-    // 2️⃣ Verify token
-    const decoded = jwt.verify(token, JWT_SECRET) as JwtPayload;
+    // 3️⃣ Verify token
+    const decoded = jwt.verify(token, JWT_SECRET) as JwtPayload & {
+      id: string;
+      email: string;
+      role: string;
+    };
 
     if (!decoded?.id || !decoded?.email) {
       return res.status(401).json({
@@ -55,7 +49,7 @@ export const requireAuth = (
       });
     }
 
-    // 3️⃣ Attach user to request
+    // 4️⃣ Attach user to request (global Express type augmentation required)
     req.user = {
       id: decoded.id,
       email: decoded.email,
@@ -75,7 +69,7 @@ export const requireAuth = (
    🔐 REQUIRE ROLE (OPTIONAL)
 ====================================================== */
 export const requireRole = (...roles: string[]) => {
-  return (req: AuthRequest, res: Response, next: NextFunction) => {
+  return (req: Request, res: Response, next: NextFunction) => {
     if (!req.user) {
       return res.status(401).json({
         success: false,
@@ -94,17 +88,27 @@ export const requireRole = (...roles: string[]) => {
   };
 };
 
-
-export const verifyAuth = (req: any, res: Response, next: NextFunction) => {
+/* ======================================================
+   🔐 VERIFY AUTH (LIGHTWEIGHT)
+====================================================== */
+export const verifyAuth = (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
   const authHeader = req.headers.authorization;
-  if (!authHeader) return res.status(401).json({ error: "Unauthorized" });
+
+  if (!authHeader) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
 
   const token = authHeader.split(" ")[1];
+
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET!);
-    req.user = decoded; // attach user info to request
+    const decoded = jwt.verify(token, JWT_SECRET);
+    req.user = decoded as any;
     next();
-  } catch (err) {
+  } catch {
     return res.status(401).json({ error: "Invalid token" });
   }
 };
