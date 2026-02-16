@@ -9,25 +9,53 @@ const { uploadLogoToR2 } = require("../utils/cloudflareUpload");
 ====================================================== */
 const ensureDealerActive = async (dealerId) => {
   try {
-    const { rows } = await query(
+    // 1️⃣ Check for admin override
+    const dealerResult = await query(
+      `SELECT admin_override FROM dealers WHERE id = $1`,
+      [dealerId]
+    );
+
+    if (dealerResult.rows[0]?.admin_override) {
+      return true; // Admin override bypasses subscription check
+    }
+
+    // 2️⃣ Check for active subscription
+    // Use UTC for now() to avoid timezone mismatches
+    const subscriptionResult = await query(
       `
-      SELECT EXISTS (
-        SELECT 1
-        FROM subscriptions
-        WHERE dealer_id = $1
-          AND now() BETWEEN start_date AND end_date
-          AND listings_used < listings_allowed
-      ) AS allowed
+      SELECT *
+      FROM subscriptions
+      WHERE dealer_id = $1
+        AND now() AT TIME ZONE 'UTC' BETWEEN start_date AT TIME ZONE 'UTC' AND end_date AT TIME ZONE 'UTC'
+        AND (
+          listings_allowed IS NULL
+          OR listings_used < listings_allowed
+        )
+      ORDER BY end_date DESC
+      LIMIT 1
       `,
       [dealerId]
     );
 
-    return Boolean(rows?.[0]?.allowed);
+    if (!subscriptionResult.rows.length) {
+      // No active subscription found
+      return false;
+    }
+
+    // 3️⃣ Optional: you could also increment listings_used here if adding a car
+        const subscription = subscriptionResult.rows[0];
+       await query(
+       `UPDATE subscriptions SET listings_used = listings_used + 1 WHERE id=$1`,
+       [subscription.id]
+    );
+
+    return true;
   } catch (err) {
     console.error("ensureDealerActive error:", err);
-    return false;
+    return false; // Fail safe: treat as inactive if error occurs
   }
 };
+
 
 
 /* ======================================================
@@ -68,6 +96,9 @@ const getAllDealers = async (req, res) => {
 const addCar = async (req, res) => {
   try {
     const dealerId = req.body.dealer_id;
+
+    console.log("Dealer ID being checked:", dealerId);
+
 
     const isActive = await ensureDealerActive(dealerId);
 
