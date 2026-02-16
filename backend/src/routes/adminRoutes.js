@@ -22,12 +22,12 @@ router.post("/cars", requireAuth, addCar);
 router.put("/cars/:id", requireAuth, updateCar);
 router.delete("/cars/:id", requireAuth, deleteCar);
 router.patch("/cars/:id/featured", requireAuth, toggleFeatured);
-router.patch("/cars/:id/status", requireAuth, updateStatus);
+router.patch("/cars/:id/status", updateStatus);
 router.patch("/cars/:id/gallery", requireAuth, replaceGallery);
 
 // 👤 Dealer Routes
-router.get("/dealers", requireAuth, getAllDealers);
-router.post("/dealers", requireAuth, addDealer);
-router.delete("/dealers/:id", requireAuth, deleteDealer);
+router.get("/dealers", getAllDealers);
+router.post("/dealers", addDealer);
+router.delete("/dealers/:id", deleteDealer);
 
 module.exports = router;
