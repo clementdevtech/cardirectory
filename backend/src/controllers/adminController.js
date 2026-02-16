@@ -69,9 +69,12 @@ const addCar = async (req, res) => {
   try {
     const dealerId = req.body.dealer_id;
 
-    if (!(await ensureDealerActive(dealerId))) {
+    const isActive = await ensureDealerActive(dealerId);
+
+    if (!isActive) {
       return res.status(402).json({
-        error: "Subscription expired",
+        success: false,
+        error: "Subscription expired or inactive",
         redirect: "/pricing",
       });
     }
@@ -134,9 +137,13 @@ const addCar = async (req, res) => {
 const updateCar = async (req, res) => {
   try {
     const dealerId = req.body.dealer_id;
-    if (!(await ensureDealerActive(dealerId))) {
+
+    const isActive = await ensureDealerActive(dealerId);
+
+    if (!isActive) {
       return res.status(402).json({
-        error: "Subscription expired",
+        success: false,
+        error: "Subscription expired or inactive",
         redirect: "/pricing",
       });
     }
@@ -171,9 +178,13 @@ const updateCar = async (req, res) => {
 const deleteCar = async (req, res) => {
   try {
     const dealerId = req.body.dealer_id;
-    if (!(await ensureDealerActive(dealerId))) {
+    
+    const isActive = await ensureDealerActive(dealerId);
+
+    if (!isActive) {
       return res.status(402).json({
-        error: "Subscription expired",
+        success: false,
+        error: "Subscription expired or inactive",
         redirect: "/pricing",
       });
     }
@@ -194,9 +205,13 @@ const deleteCar = async (req, res) => {
 const toggleFeatured = async (req, res) => {
   try {
     const dealerId = req.body.dealer_id;
-    if (!(await ensureDealerActive(dealerId))) {
+    
+    const isActive = await ensureDealerActive(dealerId);
+
+    if (!isActive) {
       return res.status(402).json({
-        error: "Subscription expired",
+        success: false,
+        error: "Subscription expired or inactive",
         redirect: "/pricing",
       });
     }
