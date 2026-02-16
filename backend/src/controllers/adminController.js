@@ -255,18 +255,7 @@ const deleteCar = async (req, res) => {
 ====================================================== */
 const toggleFeatured = async (req, res) => {
   try {
-    const dealerId = req.user.id;
-    
-    const isActive = await ensureDealerActive(dealerId);
-
-    if (!isActive) {
-      return res.status(402).json({
-        success: false,
-        error: "Subscription expired or inactive",
-        redirect: "/pricing",
-      });
-    }
-
+   
     const id = req.params.id;
     const featured = req.body.featured;
 
