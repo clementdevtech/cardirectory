@@ -8,15 +8,30 @@ const { uploadLogoToR2 } = require("../utils/cloudflareUpload");
    INTERNAL: subscription + grace + override enforcement
 ====================================================== */
 const ensureDealerActive = async (dealerId) => {
-  const { rows } = await query(
-    `SELECT dealer_has_active_access($1) AS allowed`,
-    [dealerId]
-  );
-  return rows[0] && rows[0].allowed === true;
+  try {
+    const { rows } = await query(
+      `
+      SELECT EXISTS (
+        SELECT 1
+        FROM subscriptions
+        WHERE dealer_id = $1
+          AND now() BETWEEN start_date AND end_date
+          AND listings_used < listings_allowed
+      ) AS allowed
+      `,
+      [dealerId]
+    );
+
+    return Boolean(rows?.[0]?.allowed);
+  } catch (err) {
+    console.error("ensureDealerActive error:", err);
+    return false;
+  }
 };
 
+
 /* ======================================================
-   🚗 Fetch all cars with dealer info (PUBLIC)
+    Fetch all cars with dealer info (PUBLIC)
 ====================================================== */
 const getAllCars = async (req, res) => {
   try {
