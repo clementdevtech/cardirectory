@@ -7,30 +7,38 @@ const { uploadLogoToR2 } = require("../utils/cloudflareUpload");
 /* ======================================================
    INTERNAL: subscription + grace + override enforcement
 ====================================================== */
-const ensureDealerActive = async (dealerId) => {
+const ensureDealerActive = async (userId) => {
   try {
-    // 1️⃣ Check for admin override
+    // 1️⃣ Get dealer by user_id
     const dealerResult = await query(
-      `SELECT admin_override FROM dealers WHERE id = $1`,
-      [dealerId]
+      `SELECT id, admin_override FROM dealers WHERE user_id = $1`,
+      [userId]
     );
 
-    if (dealerResult.rows[0]?.admin_override) {
-      return true; // Admin override bypasses subscription check
+    if (!dealerResult.rows.length) {
+      console.warn("No dealer found for user:", userId);
+      return false;
     }
 
-    // 2️⃣ Check for active subscription
-    // Use UTC for now() to avoid timezone mismatches
+    const dealer = dealerResult.rows[0];
+
+    // 2️⃣ Admin override bypass
+    if (dealer.admin_override) {
+      return true;
+    }
+
+    const dealerId = dealer.id;
+
+    // 3️⃣ Check for active subscription
+    // Use timezone-safe UTC comparison
     const subscriptionResult = await query(
       `
       SELECT *
       FROM subscriptions
       WHERE dealer_id = $1
-        AND now() AT TIME ZONE 'UTC' BETWEEN start_date AT TIME ZONE 'UTC' AND end_date AT TIME ZONE 'UTC'
-        AND (
-          listings_allowed IS NULL
-          OR listings_used < listings_allowed
-        )
+        AND start_date <= now() AT TIME ZONE 'UTC'
+        AND end_date >= now() AT TIME ZONE 'UTC'
+        AND (listings_allowed IS NULL OR listings_used < listings_allowed)
       ORDER BY end_date DESC
       LIMIT 1
       `,
@@ -38,21 +46,21 @@ const ensureDealerActive = async (dealerId) => {
     );
 
     if (!subscriptionResult.rows.length) {
-      // No active subscription found
+      // No active subscription
       return false;
     }
 
-    // 3️⃣ Optional: you could also increment listings_used here if adding a car
-        const subscription = subscriptionResult.rows[0];
-       await query(
-       `UPDATE subscriptions SET listings_used = listings_used + 1 WHERE id=$1`,
-       [subscription.id]
+    // 4️⃣ Increment listings_used
+    const subscription = subscriptionResult.rows[0];
+    await query(
+      `UPDATE subscriptions SET listings_used = listings_used + 1 WHERE id = $1`,
+      [subscription.id]
     );
 
     return true;
   } catch (err) {
     console.error("ensureDealerActive error:", err);
-    return false; // Fail safe: treat as inactive if error occurs
+    return false; // Fail-safe
   }
 };
 
@@ -95,12 +103,23 @@ const getAllDealers = async (req, res) => {
 ====================================================== */
 const addCar = async (req, res) => {
   try {
-    const dealerId = req.body.dealer_id;
+    const userId = req.user.id;
 
+    // 1️⃣ Get dealer record
+    const dealerRes = await query(
+      `SELECT id FROM dealers WHERE user_id = $1`,
+      [userId]
+    );
+
+    if (!dealerRes.rows.length) {
+      return res.status(404).json({ error: "Dealer not found for this user" });
+    }
+
+    const dealerId = dealerRes.rows[0].id; // ✅ now dealer_id matches cars.dealer_id FK
     console.log("Dealer ID being checked:", dealerId);
 
-
-    const isActive = await ensureDealerActive(dealerId);
+    // 2️⃣ Check subscription / admin override
+    const isActive = await ensureDealerActive(userId);
 
     if (!isActive) {
       return res.status(402).json({
@@ -110,6 +129,7 @@ const addCar = async (req, res) => {
       });
     }
 
+    // 3️⃣ Insert car
     const {
       make,
       model,
@@ -148,7 +168,7 @@ const addCar = async (req, res) => {
         video_url,
         transmission,
         phone,
-        dealerId,
+        dealerId, // ✅ must be dealers.id
       ]
     );
 
@@ -167,7 +187,7 @@ const addCar = async (req, res) => {
 ====================================================== */
 const updateCar = async (req, res) => {
   try {
-    const dealerId = req.body.dealer_id;
+    const dealerId = req.user.id;
 
     const isActive = await ensureDealerActive(dealerId);
 
@@ -208,7 +228,7 @@ const updateCar = async (req, res) => {
 ====================================================== */
 const deleteCar = async (req, res) => {
   try {
-    const dealerId = req.body.dealer_id;
+    const dealerId = req.user.id;
     
     const isActive = await ensureDealerActive(dealerId);
 
@@ -235,7 +255,7 @@ const deleteCar = async (req, res) => {
 ====================================================== */
 const toggleFeatured = async (req, res) => {
   try {
-    const dealerId = req.body.dealer_id;
+    const dealerId = req.user.id;
     
     const isActive = await ensureDealerActive(dealerId);
 
@@ -295,7 +315,7 @@ const updateStatus = async (req, res) => {
 ====================================================== */
 const replaceGallery = async (req, res) => {
   try {
-    const dealerId = req.body.dealer_id;
+    const dealerId = req.user.id;
     if (!(await ensureDealerActive(dealerId))) {
       return res.status(402).json({
         error: "Subscription expired",

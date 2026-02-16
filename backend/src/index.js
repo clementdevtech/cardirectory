@@ -76,7 +76,7 @@ app.use((req, res) => {
 /* ======================================================
    Server start
 ====================================================== */
-const PORT = Number(process.env.PORT) || 5000;
+const PORT = Number(process.env.PORT) || 4000;
 const HOST = "0.0.0.0";
 
 app.listen(PORT, HOST, () => {
