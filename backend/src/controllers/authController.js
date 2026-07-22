@@ -1,5 +1,6 @@
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const axios = require("axios");
 const { query, pool } = require("../db");
 const { sendPasswordResetEmail, sendVerificationEmail } = require("./emailController");
 const dotenv = require("dotenv");
@@ -8,6 +9,12 @@ dotenv.config();
 
 const JWT_SECRET = process.env.JWT_SECRET;
 const FRONTEND_URL = process.env.FRONTEND_URL;
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || process.env["google-clientid"];
+const GOOGLE_CLIENT_SECRET =
+  process.env.GOOGLE_CLIENT_SECRET || process.env["google-clientsecret"];
+const GOOGLE_REDIRECT_URI =
+  process.env.GOOGLE_REDIRECT_URI ||
+  "https://www.cardirectory.co.ke/api/auth/google-callback";
 
 /* ======================================================
    📌 CREATE & SEND VERIFICATION EMAIL
@@ -139,6 +146,111 @@ const loginUser = async (req, res) => {
   } catch (err) {
     console.error("❌ loginUser error:", err);
     return res.status(500).json({ success: false, error: "Internal server error" });
+  }
+};
+
+/* ======================================================
+   ✅ GOOGLE LOGIN / REGISTRATION
+====================================================== */
+const googleLogin = (req, res) => {
+  if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
+    return res.status(503).json({
+      success: false,
+      error: "Google login is not configured on the server.",
+    });
+  }
+
+  const params = new URLSearchParams({
+    client_id: GOOGLE_CLIENT_ID,
+    redirect_uri: GOOGLE_REDIRECT_URI,
+    response_type: "code",
+    scope: "openid email profile",
+    access_type: "offline",
+    prompt: "select_account",
+  });
+
+  return res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params}`);
+};
+
+const googleCallback = async (req, res) => {
+  try {
+    const { code, error } = req.query;
+    if (error || !code) {
+      return res.redirect(`${FRONTEND_URL}/login?google_error=cancelled`);
+    }
+
+    const tokenResponse = await axios.post(
+      "https://oauth2.googleapis.com/token",
+      new URLSearchParams({
+        code,
+        client_id: GOOGLE_CLIENT_ID,
+        client_secret: GOOGLE_CLIENT_SECRET,
+        redirect_uri: GOOGLE_REDIRECT_URI,
+        grant_type: "authorization_code",
+      }),
+      { headers: { "Content-Type": "application/x-www-form-urlencoded" } }
+    );
+
+    const accessToken = tokenResponse.data?.access_token;
+    if (!accessToken) throw new Error("Google did not return an access token.");
+
+    const profileResponse = await axios.get(
+      "https://www.googleapis.com/oauth2/v3/userinfo",
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+
+    const profile = profileResponse.data;
+    if (!profile.email || profile.email_verified !== true) {
+      return res.redirect(`${FRONTEND_URL}/login?google_error=email_not_verified`);
+    }
+
+    const existing = await query(
+      "SELECT id, full_name, email, role FROM users WHERE email = $1 LIMIT 1",
+      [profile.email]
+    );
+
+    let user;
+    if (existing.rows.length > 0) {
+      const result = await query(
+        `UPDATE users
+         SET is_verified = true, full_name = COALESCE(NULLIF(full_name, ''), $1)
+         WHERE id = $2
+         RETURNING id, full_name, email, role`,
+        [profile.name || profile.email.split("@")[0], existing.rows[0].id]
+      );
+      user = result.rows[0];
+    } else {
+      const generatedPassword = await bcrypt.hash(
+        `${profile.sub}:${JWT_SECRET}`,
+        10
+      );
+      const result = await query(
+        `INSERT INTO users
+          (full_name, email, password, role, is_verified, created_at)
+         VALUES ($1, $2, $3, 'user', true, now())
+         RETURNING id, full_name, email, role`,
+        [profile.name || profile.email.split("@")[0], profile.email, generatedPassword]
+      );
+      user = result.rows[0];
+    }
+
+    const sessionToken = jwt.sign(
+      { id: user.id, email: user.email, role: user.role },
+      JWT_SECRET,
+      { expiresIn: "7d" }
+    );
+
+    res.cookie("auth_token", sessionToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "strict",
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
+
+    return res.redirect(`${FRONTEND_URL}/?google_login=success`);
+  } catch (err) {
+    console.error("Google authentication error:", err.response?.data || err.message);
+    return res.redirect(`${FRONTEND_URL}/login?google_error=failed`);
   }
 };
 
@@ -331,4 +443,6 @@ module.exports = {
   verifyEmailStatus,
   resendVerification,
   getMe,
+  googleLogin,
+  googleCallback,
 };

@@ -86,7 +86,7 @@ const Dealers: React.FC = () => {
     return (
       <div className="min-h-screen flex flex-col">
         <Navbar />
-        <main className="flex-1 p-8 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <main className="flex-1 p-4 sm:p-8 grid grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
           {[...Array(6)].map((_, i) => (
             <div key={i} className="animate-pulse border rounded-lg shadow-sm">
               <div className="bg-gray-200 h-48" />
@@ -136,7 +136,7 @@ const Dealers: React.FC = () => {
             </div>
 
             {/* 💎 Dealer Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
               {filteredDealers.map((d) => (
                 <div
                   key={d.id}

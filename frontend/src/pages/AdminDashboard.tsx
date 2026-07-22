@@ -304,7 +304,7 @@ const AdminDashboard: React.FC = () => {
         <h1 className="text-4xl font-bold mb-6">Admin Dashboard</h1>
 
         {/* Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 sm:gap-6 mb-8">
           <Card className="p-6">Total Listings: {stats.totalListings}</Card>
           <Card className="p-6">Pending: {stats.pendingApproval}</Card>
           <Card className="p-6">Dealers: {stats.totalDealers}</Card>

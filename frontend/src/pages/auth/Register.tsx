@@ -22,6 +22,10 @@ const Register = () => {
   const validateEmail = (email: string) =>
     /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 
+  const handleGoogleRegistration = () => {
+    window.location.assign(`${import.meta.env.VITE_BACKEND_URL}/auth/google`);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setEmailError("");
@@ -75,6 +79,20 @@ const Register = () => {
           <p className="text-gray-600">
             Create your account to get started with us.
           </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={handleGoogleRegistration}
+          className="w-full py-3 rounded-xl border border-gray-300 bg-white font-semibold text-gray-700 transition hover:bg-gray-50 hover:border-gray-400"
+        >
+          Continue with Google
+        </button>
+
+        <div className="flex items-center gap-3 text-xs text-gray-400">
+          <div className="h-px flex-1 bg-gray-200" />
+          <span>OR</span>
+          <div className="h-px flex-1 bg-gray-200" />
         </div>
 
         {/* Registration Form */}

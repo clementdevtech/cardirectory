@@ -7,6 +7,8 @@ const {
   verifyEmailStatus,
   getMe,
   resendVerification,
+  googleLogin,
+  googleCallback,
 } = require("../controllers/authController");
 
 const router = express.Router();
@@ -18,5 +20,7 @@ router.post("/forgot-password", forgotPassword);
 router.get("/verify-email", verifyEmailStatus);
 router.post("/resend-verification", resendVerification);
 router.get("/me", getMe);
+router.get("/google", googleLogin);
+router.get("/google-callback", googleCallback);
 
 module.exports = router;

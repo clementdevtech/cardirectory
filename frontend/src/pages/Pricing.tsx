@@ -175,7 +175,7 @@ const Pricing: React.FC = () => {
         </div>
 
         {/* Pricing Cards */}
-        <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-3 max-w-7xl mx-auto">
+        <div className="grid grid-cols-2 gap-4 sm:gap-8 lg:grid-cols-3 max-w-7xl mx-auto">
           {plans.map((p, index) => {
             const isSelected = selectedPlan === p.name;
             const finalPrice = calculatePrice(p.price);
