@@ -10,6 +10,10 @@ const {
   getAllDealers,
   addDealer,
   deleteDealer,
+  getSalesDashboard,
+  getAdminUsers,
+  updateUserRoleAndCommission,
+  recordSalesCommission,
 } = require("../controllers/adminController");
 
 const { requireAuth } = require("../middleware/requireAuth");
@@ -29,5 +33,12 @@ router.patch("/cars/:id/gallery", requireAuth, replaceGallery);
 router.get("/dealers", getAllDealers);
 router.post("/dealers", addDealer);
 router.delete("/dealers/:id", deleteDealer);
+
+// 📊 Sales Routes
+router.get("/sales-dashboard/:userId", requireAuth, getSalesDashboard);
+router.get("/sales-dashboard", requireAuth, getSalesDashboard);
+router.get("/users", requireAuth, getAdminUsers);
+router.patch("/users/:id", requireAuth, updateUserRoleAndCommission);
+router.post("/sales-commission", requireAuth, recordSalesCommission);
 
 module.exports = router;

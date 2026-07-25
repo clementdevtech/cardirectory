@@ -62,21 +62,16 @@ const Footer = () => {
                   Contact Us
                 </Link>
               </li>
-              {/*<li>
-                <a href="#" className="text-muted-foreground hover:text-primary transition-smooth text-sm">
+              <li>
+                <Link to="/privacy-policy" className="text-muted-foreground hover:text-primary transition-smooth text-sm">
                   Privacy Policy
-                </a>
+                </Link>
               </li>
               <li>
-                <a href="#" className="text-muted-foreground hover:text-primary transition-smooth text-sm">
+                <Link to="/terms-of-service" className="text-muted-foreground hover:text-primary transition-smooth text-sm">
                   Terms of Service
-                </a>
+                </Link>
               </li>
-              <li>
-                <a href="#" className="text-muted-foreground hover:text-primary transition-smooth text-sm">
-                  Cookie Policy
-                </a>
-              </li>*/}
             </ul>
           </div>
 

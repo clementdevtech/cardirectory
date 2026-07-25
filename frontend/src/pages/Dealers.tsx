@@ -1,9 +1,11 @@
 import React, { useState, useMemo } from "react";
+import { useNavigate } from "react-router-dom";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Loader2, MapPin, Phone, Mail, CheckCircle } from "lucide-react";
+import { dealerCompanySlug } from "@/utils/dealerSlug";
 
 interface Dealer {
   id: string;
@@ -25,6 +27,7 @@ interface Dealer {
 }
 
 const Dealers: React.FC = () => {
+  const navigate = useNavigate();
   const [search, setSearch] = useState("");
   const [filterCountry, setFilterCountry] = useState("");
   const [page, setPage] = useState(1);
@@ -136,11 +139,12 @@ const Dealers: React.FC = () => {
             </div>
 
             {/* 💎 Dealer Cards */}
-            <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
+            <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
               {filteredDealers.map((d) => (
                 <div
                   key={d.id}
-                  className="border rounded-lg shadow-sm hover:shadow-lg transition bg-white overflow-hidden"
+                  onClick={() => navigate(`/dealers/${dealerCompanySlug(d)}`)}
+                  className="cursor-pointer border rounded-lg shadow-sm hover:shadow-lg transition bg-white overflow-hidden"
                 >
                   {/* 🏢 Dealer Logo */}
                   {d.company_logo ? (
@@ -181,6 +185,7 @@ const Dealers: React.FC = () => {
                             href={`https://wa.me/${d.phone.replace(/\s/g, "")}`}
                             target="_blank"
                             rel="noreferrer"
+                            onClick={(e) => e.stopPropagation()}
                             className="flex items-center gap-1 px-3 py-2 border rounded hover:bg-green-100"
                           >
                             <img
@@ -192,6 +197,7 @@ const Dealers: React.FC = () => {
                           </a>
                           <a
                             href={`tel:${d.phone}`}
+                            onClick={(e) => e.stopPropagation()}
                             className="flex items-center gap-1 px-3 py-2 border rounded hover:bg-blue-100"
                           >
                             <Phone className="w-4 h-4" /> Call
@@ -200,6 +206,7 @@ const Dealers: React.FC = () => {
                       )}
                       <a
                         href={`mailto:${d.email}`}
+                        onClick={(e) => e.stopPropagation()}
                         className="flex items-center gap-1 px-3 py-2 border rounded hover:bg-gray-100"
                       >
                         <Mail className="w-4 h-4" /> Email

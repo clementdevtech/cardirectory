@@ -4,6 +4,143 @@ const { query } = require("../db");
 const { sendZohoMail } = require("./emailController");
 const { uploadLogoToR2 } = require("../utils/cloudflareUpload");
 
+const getSalesDashboard = async (req, res) => {
+  try {
+    const salespersonId = req.params.userId || req.user?.id;
+
+    const dealerCountResult = await query(
+      `SELECT COUNT(*)::int AS count FROM dealers WHERE referred_by = $1`,
+      [salespersonId]
+    );
+
+    const activeDealerCountResult = await query(
+      `SELECT COUNT(*)::int AS count FROM dealers WHERE referred_by = $1 AND status = 'verified'`,
+      [salespersonId]
+    );
+
+    const commissionResult = await query(
+      `SELECT COALESCE(SUM(commission_amount), 0)::numeric AS total FROM sales_commissions WHERE salesperson_id = $1 AND status = 'paid'`,
+      [salespersonId]
+    );
+
+    const commissionsResult = await query(
+      `SELECT * FROM sales_commissions WHERE salesperson_id = $1 ORDER BY created_at DESC LIMIT 20`,
+      [salespersonId]
+    );
+
+    const dealersResult = await query(
+      `SELECT id, full_name, company_name, email, phone, status, created_at, referred_by
+       FROM dealers
+       WHERE referred_by = $1
+       ORDER BY created_at DESC LIMIT 20`,
+      [salespersonId]
+    );
+
+    const dealerCarsResult = await query(
+      `SELECT c.id, c.make, c.model, c.year, c.status, c.created_at, d.full_name AS dealer_name, d.company_name
+       FROM cars c
+       JOIN dealers d ON d.id = c.dealer_id
+       WHERE d.referred_by = $1
+       ORDER BY c.created_at DESC LIMIT 20`,
+      [salespersonId]
+    );
+
+    res.json({
+      dealersBrought: dealerCountResult.rows[0]?.count || 0,
+      activeDealers: activeDealerCountResult.rows[0]?.count || 0,
+      commissionEarned: Number(commissionResult.rows[0]?.total || 0),
+      commissions: commissionsResult.rows,
+      dealers: dealersResult.rows,
+      dealerCars: dealerCarsResult.rows,
+    });
+  } catch (err) {
+    console.error("❌ getSalesDashboard error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+const getAdminUsers = async (req, res) => {
+  try {
+    const result = await query(`
+      SELECT id, full_name, email, role, is_verified, commission_rate, created_at
+      FROM users
+      ORDER BY created_at DESC
+    `);
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error("❌ getAdminUsers error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+const updateUserRoleAndCommission = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { role, commission_rate } = req.body;
+
+    if (!id) return res.status(400).json({ error: "User id is required" });
+
+    const updates = [];
+    const values = [];
+
+    if (role) {
+      updates.push(`role = $${values.length + 1}`);
+      values.push(role);
+    }
+
+    if (typeof commission_rate === "number") {
+      updates.push(`commission_rate = $${values.length + 1}`);
+      values.push(commission_rate);
+    }
+
+    if (!updates.length) {
+      return res.status(400).json({ error: "Nothing to update" });
+    }
+
+    values.push(id);
+    const result = await query(
+      `UPDATE users SET ${updates.join(", ")} WHERE id = $${values.length} RETURNING id, full_name, email, role, commission_rate`,
+      values
+    );
+
+    res.json({ message: "User updated", user: result.rows[0] });
+  } catch (err) {
+    console.error("❌ updateUserRoleAndCommission error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+const recordSalesCommission = async (req, res) => {
+  try {
+    const { salespersonId, dealerId, paymentId, packageName, packageAmount, commissionRate, status = "pending" } = req.body;
+
+    if (!salespersonId || !dealerId || !paymentId) {
+      return res.status(400).json({ error: "salespersonId, dealerId and paymentId are required" });
+    }
+
+    const rate = Number(commissionRate || 15);
+    const amount = Number(packageAmount || 0) * (rate / 100);
+
+    const result = await query(
+      `INSERT INTO sales_commissions (salesperson_id, dealer_id, payment_id, package_name, package_amount, commission_rate, commission_amount, status, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+       RETURNING *`,
+      [salespersonId, dealerId, paymentId, packageName || "Package", Number(packageAmount || 0), rate, amount, status]
+    );
+
+    await query(
+      `UPDATE dealers SET referred_by = $1, sales_commission_rate = $2 WHERE id = $3`,
+      [salespersonId, rate, dealerId]
+    );
+
+    res.status(201).json({ commission: result.rows[0] });
+  } catch (err) {
+    console.error("❌ recordSalesCommission error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+};
+
 /* ======================================================
    INTERNAL: subscription + grace + override enforcement
 ====================================================== */
@@ -90,6 +227,11 @@ const getAllCars = async (req, res) => {
 ====================================================== */
 const getAllDealers = async (req, res) => {
   try {
+    if (req.user?.role === "salesperson") {
+      const result = await query(`SELECT * FROM dealers WHERE referred_by = $1 ORDER BY created_at DESC`, [req.user.id]);
+      return res.json(result.rows);
+    }
+
     const result = await query(`SELECT * FROM dealers ORDER BY created_at DESC`);
     res.json(result.rows);
   } catch (err) {
@@ -104,32 +246,45 @@ const getAllDealers = async (req, res) => {
 const addCar = async (req, res) => {
   try {
     const userId = req.user.id;
+    const role = req.user?.role;
+    const isAdmin = role === "admin";
+    const isSalesperson = role === "salesperson";
 
-    // 1️⃣ Get dealer record
-    const dealerRes = await query(
-      `SELECT id FROM dealers WHERE user_id = $1`,
-      [userId]
-    );
+    let dealerId = null;
 
-    if (!dealerRes.rows.length) {
-      return res.status(404).json({ error: "Dealer not found for this user" });
+    if (req.body.dealer_id) {
+      const dealerRes = await query(`SELECT id, referred_by FROM dealers WHERE id = $1`, [req.body.dealer_id]);
+      if (!dealerRes.rows.length) {
+        return res.status(404).json({ error: "Dealer not found" });
+      }
+
+      const dealer = dealerRes.rows[0];
+      if (isSalesperson && dealer.referred_by !== userId) {
+        return res.status(403).json({ error: "You can only add cars for dealers you added" });
+      }
+
+      dealerId = dealer.id;
+    } else if (isSalesperson) {
+      return res.status(400).json({ error: "Please select a dealer for this vehicle" });
+    } else {
+      const dealerRes = await query(`SELECT id FROM dealers WHERE user_id = $1`, [userId]);
+      if (!dealerRes.rows.length) {
+        return res.status(404).json({ error: "Dealer not found for this user" });
+      }
+      dealerId = dealerRes.rows[0].id;
     }
 
-    const dealerId = dealerRes.rows[0].id; // ✅ now dealer_id matches cars.dealer_id FK
-    console.log("Dealer ID being checked:", dealerId);
-
-    // 2️⃣ Check subscription / admin override
-    const isActive = await ensureDealerActive(userId);
-
-    if (!isActive) {
-      return res.status(402).json({
-        success: false,
-        error: "Subscription expired or inactive",
-        redirect: "/pricing",
-      });
+    if (!isAdmin) {
+      const isActive = await ensureDealerActive(userId);
+      if (!isActive) {
+        return res.status(402).json({
+          success: false,
+          error: "Subscription expired or inactive",
+          redirect: "/pricing",
+        });
+      }
     }
 
-    // 3️⃣ Insert car
     const {
       make,
       model,
@@ -336,6 +491,8 @@ const replaceGallery = async (req, res) => {
 const addDealer = async (req, res) => {
   try {
     const { full_name, email, company_name, phone, country, logo } = req.body;
+    const creatorRole = req.user?.role;
+    const referredBy = creatorRole === "salesperson" ? req.user.id : null;
 
     if (!full_name || !email || !company_name || !phone || !country) {
       return res.status(400).json({ message: "All fields are required." });
@@ -361,9 +518,9 @@ const addDealer = async (req, res) => {
 
     const dealer = await query(
       `INSERT INTO dealers
-       (id, user_id, full_name, company_name, email, phone, country, company_logo, status, created_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'verified',NOW()) RETURNING *`,
-      [dealerId, userId, full_name, company_name, email, phone, country, logoUrl]
+       (id, user_id, full_name, company_name, email, phone, country, company_logo, status, referred_by, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'verified',$9,NOW()) RETURNING *`,
+      [dealerId, userId, full_name, company_name, email, phone, country, logoUrl, referredBy]
     );
 
     await sendZohoMail(
@@ -431,4 +588,8 @@ module.exports = {
   addDealer,
   deleteDealer,
   toggleAdminOverride,
+  getSalesDashboard,
+  getAdminUsers,
+  updateUserRoleAndCommission,
+  recordSalesCommission,
 };

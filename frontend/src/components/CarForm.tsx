@@ -19,6 +19,9 @@ type Props = {
   setLocationQuery: (v: string) => void;
   suggestions: any[];
   onSelectSuggestion: (place: any) => void;
+  dealerOptions?: Array<{ id: string; full_name: string; company_name?: string; email?: string }>;
+  selectedDealerId?: string | null;
+  onDealerChange?: (dealerId: string | null) => void;
 
   onSubmit: (e: React.FormEvent) => void;
   onCancelEdit: () => void;
@@ -36,6 +39,9 @@ const CarForm: React.FC<Props> = ({
   setLocationQuery,
   suggestions,
   onSelectSuggestion,
+  dealerOptions = [],
+  selectedDealerId,
+  onDealerChange,
   onSubmit,
   onCancelEdit,
 }) => {
@@ -122,6 +128,29 @@ const CarForm: React.FC<Props> = ({
           </div>
         </div>
       </div>
+
+      {/* Dealer assignment */}
+      {dealerOptions.length > 0 && (
+        <div>
+          <Label>Assign Dealer</Label>
+          <select
+            value={selectedDealerId ?? form.dealer_id ?? ""}
+            onChange={(e) => {
+              const value = e.target.value || null;
+              setForm({ ...form, dealer_id: value });
+              onDealerChange?.(value);
+            }}
+            className="w-full rounded border border-gray-300 bg-white px-3 py-2"
+          >
+            <option value="">Select a dealer</option>
+            {dealerOptions.map((dealer) => (
+              <option key={dealer.id} value={dealer.id}>
+                {dealer.full_name} {dealer.company_name ? `• ${dealer.company_name}` : ""}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {/* Price */}
       <Label>Price</Label>

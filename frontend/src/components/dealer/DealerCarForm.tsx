@@ -20,18 +20,27 @@ interface Props {
   step: number;
   setStep: (n: number) => void;
   form: any;
-  setForm: (v: any) => void;
-  errors: Record<string, string>;
+  setForm: React.Dispatch<React.SetStateAction<any>>;
+  errors?: Record<string, string>;
+  galleryFiles?: File[];
+  setGalleryFiles?: React.Dispatch<React.SetStateAction<File[]>>;
+  existingGallery?: string[];
+  onSubmit?: (e: React.FormEvent) => Promise<void> | void;
+  loading?: boolean;
   isEdit?: boolean;
+  [key: string]: any;
 }
 
-const DealerCarForm: React.FC<Props> = ({
-  step,
-  setStep,
-  form,
-  setForm,
-  isEdit,
-}) => {
+const DealerCarForm: React.FC<any> = (props) => {
+  const {
+    step,
+    setStep,
+    form,
+    setForm,
+    onSubmit,
+    loading: externalLoading,
+    isEdit,
+  } = props as Props;
   const { user, isLoading } = useAuth();
   const [loading, setLoading] = useState(false);
   const [submitError, setSubmitError] = useState("");
@@ -58,6 +67,11 @@ const DealerCarForm: React.FC<Props> = ({
   /* -------------------- Submit -------------------- */
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (onSubmit) {
+      await onSubmit(e);
+      return;
+    }
 
     if (!user) {
       setSubmitError("User not authenticated");
@@ -283,8 +297,8 @@ const DealerCarForm: React.FC<Props> = ({
             Next
           </Button>
         ) : (
-          <Button type="submit" disabled={loading} className="ml-auto">
-            {loading ? "Submitting..." : "Submit Listing"}
+          <Button type="submit" disabled={loading || externalLoading} className="ml-auto">
+            {loading || externalLoading ? "Submitting..." : "Submit Listing"}
           </Button>
         )}
       </div>

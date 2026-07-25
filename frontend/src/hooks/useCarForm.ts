@@ -59,5 +59,9 @@ export const useCarForm = (initial?: Partial<CarFormShape>) => {
     setForm(empty);
   };
 
-  return { form, setForm, editId, startEdit, resetForm };
+  const clearEdit = () => {
+    setEditId(null);
+  };
+
+  return { form, setForm, editId, startEdit, resetForm, clearEdit };
 };

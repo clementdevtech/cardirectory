@@ -15,6 +15,7 @@ const oauthRouter = require("./routes/emailAuth");
 
 // 🕒 Cron jobs
 const { startSubscriptionExpiryJob } = require("./jobs/expireSubscriptions");
+const { ensureSalesCommissionSchema } = require("./utils/schemaBootstrap");
 require("./jobs/expiry-notify"); // auto-starts on import
 
 dotenv.config();
@@ -26,7 +27,9 @@ const app = express();
 ====================================================== */
 const allowedOrigins = [
   "http://localhost:8080",
+  "http://127.0.0.1:8080",
   "http://192.168.100.25:8080",
+  "http://192.168.100.42:8080",
   "https://cardirectory.pages.dev",
   "https://cardirectory.co.ke",
   "https://www.cardirectory.co.ke",
@@ -84,6 +87,7 @@ app.listen(PORT, HOST, () => {
 
   // 🕛 Nightly expiry job (auto-expire + grace period)
   startSubscriptionExpiryJob();
+  ensureSalesCommissionSchema();
 
   console.log("🕒 Cron jobs initialized");
 });

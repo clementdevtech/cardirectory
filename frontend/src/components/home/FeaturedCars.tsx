@@ -85,7 +85,7 @@ const FeaturedCars: React.FC = () => {
           Featured Cars
         </h2>
 
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-6">
           {cars.map((car) => (
             <Card
               key={car.id}
@@ -100,34 +100,34 @@ const FeaturedCars: React.FC = () => {
                     "/placeholder.jpg"
                   }
                   alt={`${car.make} ${car.model}`}
-                  className="w-full h-48 object-cover group-hover:scale-110 transition-transform duration-300"
+                  className="w-full h-36 sm:h-44 lg:h-48 object-cover group-hover:scale-110 transition-transform duration-300"
                 />
               </div>
 
-              <CardContent className="p-4 space-y-3">
+              <CardContent className="p-3 sm:p-4 space-y-2 sm:space-y-3">
                 {/* Vehicle Info */}
                 <div>
-                  <h3 className="font-heading font-semibold text-lg capitalize">
+                  <h3 className="font-heading font-semibold text-sm sm:text-base lg:text-lg capitalize leading-tight">
                     {car.year} {car.make} {car.model}
                   </h3>
-                  <p className="text-sm text-muted-foreground">
+                  <p className="text-xs sm:text-sm text-muted-foreground leading-tight">
                     {car.transmission ? `${car.transmission} • ` : ""}
                     {car.condition ?? "Condition unknown"}
                   </p>
-                  <p className="text-2xl font-bold text-primary mt-1">
+                  <p className="text-lg sm:text-xl lg:text-2xl font-bold text-primary mt-1 leading-tight">
                     {formatPrice(Number(car.price))}
                   </p>
                 </div>
 
                 {/* 🏞️ Small gallery thumbnails */}
                 {car.gallery && car.gallery.length > 1 && (
-                  <div className="flex gap-2 overflow-x-auto pt-2">
+                  <div className="flex gap-2 overflow-x-auto pt-1 sm:pt-2">
                     {car.gallery.slice(1, 4).map((img, i) => (
                       <img
                         key={i}
                         src={img}
                         alt="Gallery thumbnail"
-                        className="w-16 h-16 object-cover rounded-md"
+                        className="w-12 h-12 sm:w-14 sm:h-14 lg:w-16 lg:h-16 object-cover rounded-md shrink-0"
                       />
                     ))}
                   </div>
@@ -144,9 +144,9 @@ const FeaturedCars: React.FC = () => {
                 )}
 
                 {/* 📞 Action Buttons */}
-                <div className="flex gap-2 pt-3">
+                <div className="flex gap-2 pt-2 sm:pt-3">
                   <Link to={`/cars/${car.id}`} className="flex-1">
-                    <Button variant="default" className="w-full">
+                    <Button variant="default" className="w-full h-9 sm:h-10 px-2 sm:px-4 text-xs sm:text-sm">
                       View Details
                     </Button>
                   </Link>
@@ -164,7 +164,7 @@ const FeaturedCars: React.FC = () => {
                     >
                       <Button
                         variant="secondary"
-                        className="w-full bg-green-600 hover:bg-green-700 text-white"
+                        className="w-full h-9 sm:h-10 px-2 sm:px-4 text-xs sm:text-sm bg-green-600 hover:bg-green-700 text-white"
                       >
                         WhatsApp
                       </Button>
