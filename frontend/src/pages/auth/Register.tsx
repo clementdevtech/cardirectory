@@ -23,7 +23,21 @@ const Register = () => {
     /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 
   const handleGoogleRegistration = () => {
-    window.location.assign(`${import.meta.env.VITE_BACKEND_URL}/auth/google`);
+    const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+    const redirect = `${window.location.origin}/oauth-callback`;
+    if (clientId) {
+      const params = new URLSearchParams({
+        client_id: clientId,
+        redirect_uri: redirect,
+        response_type: "code",
+        scope: "openid email profile",
+        access_type: "offline",
+        prompt: "consent",
+      });
+      window.location.assign(`https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`);
+    } else {
+      window.location.assign(`${import.meta.env.VITE_BACKEND_URL}/auth/google`);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {

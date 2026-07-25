@@ -36,6 +36,7 @@ import Register from "./pages/auth/Register";
 import ForgotPassword from "./pages/auth/ForgotPassword";
 import ResetPassword from "./pages/auth/ResetPassword";
 import VerifyEmail from "./pages/auth/VerifyEmail";
+import OAuthCallback from "./pages/auth/OAuthCallback";
 import PaymentStatus from "@/pages/PaymentStatus";
 
 
@@ -65,6 +66,7 @@ const router = createBrowserRouter(
     { path: "/forgot-password", element: <ForgotPassword /> },
     { path: "/reset-password", element: <ResetPassword /> },
     { path: "/verify-email", element: <VerifyEmail /> },
+    { path: "/oauth-callback", element: <OAuthCallback /> },
     {
       path: "/post-vehicle",
       element: (

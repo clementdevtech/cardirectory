@@ -130,7 +130,7 @@ const loginUser = async (req, res) => {
     res.cookie("auth_token", sessionToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
+      sameSite: process.env.NODE_ENV === "production" ? "none" : "strict",
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
@@ -245,7 +245,7 @@ const googleCallback = async (req, res) => {
     res.cookie("auth_token", sessionToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
+      sameSite: process.env.NODE_ENV === "production" ? "none" : "strict",
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
@@ -257,11 +257,104 @@ const googleCallback = async (req, res) => {
 };
 
 /* ======================================================
+   ✅ EXCHANGE ONE-TIME CODE FOR SESSION TOKEN (POST)
+   Frontend can POST `{ code, redirect_uri? }` to this endpoint.
+   If `redirect_uri` is provided, it will be used when exchanging the code
+   (useful when the OAuth flow redirects to the frontend and the frontend
+   wants the backend to complete the token exchange).
+====================================================== */
+const googleExchange = async (req, res) => {
+  try {
+    const { code, redirect_uri } = req.body;
+    if (!code) return res.status(400).json({ success: false, error: "Missing code" });
+
+    const effectiveRedirect = redirect_uri || GOOGLE_REDIRECT_URI;
+
+    const tokenResponse = await axios.post(
+      "https://oauth2.googleapis.com/token",
+      new URLSearchParams({
+        code,
+        client_id: GOOGLE_CLIENT_ID,
+        client_secret: GOOGLE_CLIENT_SECRET,
+        redirect_uri: effectiveRedirect,
+        grant_type: "authorization_code",
+      }),
+      { headers: { "Content-Type": "application/x-www-form-urlencoded" } }
+    );
+
+    const accessToken = tokenResponse.data?.access_token;
+    if (!accessToken) throw new Error("Google did not return an access token.");
+
+    const profileResponse = await axios.get(
+      "https://www.googleapis.com/oauth2/v3/userinfo",
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+
+    const profile = profileResponse.data;
+    if (!profile.email || profile.email_verified !== true) {
+      return res.status(400).json({ success: false, error: "Google account email not verified" });
+    }
+
+    const existing = await query(
+      "SELECT id, full_name, email, role FROM users WHERE email = $1 LIMIT 1",
+      [profile.email]
+    );
+
+    let user;
+    if (existing.rows.length > 0) {
+      const result = await query(
+        `UPDATE users
+         SET is_verified = true, full_name = COALESCE(NULLIF(full_name, ''), $1)
+         WHERE id = $2
+         RETURNING id, full_name, email, role`,
+        [profile.name || profile.email.split("@")[0], existing.rows[0].id]
+      );
+      user = result.rows[0];
+    } else {
+      const generatedPassword = await bcrypt.hash(
+        `${profile.sub}:${JWT_SECRET}`,
+        10
+      );
+      const result = await query(
+        `INSERT INTO users
+          (full_name, email, password, role, is_verified, created_at)
+         VALUES ($1, $2, $3, 'user', true, now())
+         RETURNING id, full_name, email, role`,
+        [profile.name || profile.email.split("@")[0], profile.email, generatedPassword]
+      );
+      user = result.rows[0];
+    }
+
+    const sessionToken = jwt.sign(
+      { id: user.id, email: user.email, role: user.role },
+      JWT_SECRET,
+      { expiresIn: "7d" }
+    );
+
+    res.cookie("auth_token", sessionToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: process.env.NODE_ENV === "production" ? "none" : "strict",
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
+
+    return res.json({ success: true, token: sessionToken, user });
+  } catch (err) {
+    console.error("Google exchange error:", err.response?.data || err.message);
+    return res.status(500).json({ success: false, error: "Google exchange failed" });
+  }
+};
+
+/* ======================================================
    ✅ LOGOUT
 ====================================================== */
 const logoutUser = async (_, res) => {
   try {
-    res.clearCookie("auth_token");
+    res.clearCookie("auth_token", {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: process.env.NODE_ENV === "production" ? "none" : "strict",
+    });
     return res.status(200).json({ success: true, message: "Logged out successfully" });
   } catch {
     return res.status(500).json({ success: false, error: "Internal Server Error" });
