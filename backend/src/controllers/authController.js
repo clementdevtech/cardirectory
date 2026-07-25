@@ -15,7 +15,7 @@ const GOOGLE_CLIENT_SECRET =
 const GOOGLE_REDIRECT_URI =
   process.env.GOOGLE_REDIRECT_URI ||
   (process.env.NODE_ENV === "production"
-    ? "https://www.cardirectory.co.ke/api/auth/google-callback"
+    ? "https://cardirectory.onrender.com/api/auth/google-callback"
     : "http://localhost:4000/api/auth/google-callback");
 
 /* ======================================================
