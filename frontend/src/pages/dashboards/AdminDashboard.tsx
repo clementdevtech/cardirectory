@@ -135,6 +135,12 @@ const AdminDashboard: React.FC = () => {
   const [carQuickFilter, setCarQuickFilter] = useState<"all" | "new" | "pending" | "featured">("all");
   const [dealerQuickFilter, setDealerQuickFilter] = useState<"all" | "new">("all");
   const [userQuickFilter, setUserQuickFilter] = useState<"all" | "new">("all");
+  const [emailCampaignSubject, setEmailCampaignSubject] = useState("");
+  const [emailCampaignBody, setEmailCampaignBody] = useState("");
+  const [emailCampaignType, setEmailCampaignType] = useState<"one-to-one" | "mass">("mass");
+  const [emailCampaignRecipients, setEmailCampaignRecipients] = useState("");
+  const [selectedEmailUser, setSelectedEmailUser] = useState<string>("");
+  const [emailCampaignStatus, setEmailCampaignStatus] = useState<string>("");
 
   const pageSize = 5;
 
@@ -453,6 +459,61 @@ const AdminDashboard: React.FC = () => {
         description: err?.message || "An error occurred",
         variant: "destructive",
       });
+    }
+  };
+
+  const handleSelectEmailUser = (email: string) => {
+    setSelectedEmailUser(email);
+    setEmailCampaignType("one-to-one");
+    setEmailCampaignRecipients(email);
+    setActiveView("overview");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const handleRunEmailCampaign = async () => {
+    if (!emailCampaignSubject.trim() || !emailCampaignBody.trim()) {
+      toast({ title: "Missing fields", description: "Subject and body are required.", variant: "destructive" });
+      return;
+    }
+
+    const recipients = emailCampaignRecipients
+      .split(/\r?\n|,|;/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+
+    if (!recipients.length) {
+      toast({ title: "Missing recipients", description: "Enter at least one recipient email.", variant: "destructive" });
+      return;
+    }
+
+    try {
+      setEmailCampaignStatus(emailCampaignType === "one-to-one" ? "Sending email now..." : "Scheduling campaign...");
+      const response = await axiosInstance.post("/email-campaign", {
+        type: emailCampaignType,
+        subject: emailCampaignSubject,
+        body: emailCampaignBody,
+        recipients,
+        batchSize: 10,
+        intervalMinutes: 5,
+      });
+
+      const data = response.data || {};
+      if (emailCampaignType === "one-to-one") {
+        const accepted = Number(data.accepted || recipients.length - (data.failed?.length || 0));
+        const failed = data.failed || [];
+        const failedMessage = failed.length ? ` Failed recipients: ${failed.map((failure: any) => failure.email).join(", ")}.` : "";
+        const statusMessage = `Zoho accepted ${accepted} email(s). Delivery pending.${failedMessage}`;
+        setEmailCampaignStatus(statusMessage);
+        toast({ title: "Email accepted", description: statusMessage });
+      } else {
+        setEmailCampaignStatus(data.message || "Campaign scheduled successfully.");
+        toast({ title: "Campaign scheduled", description: data.message || "Emails will be sent in batches every 5 minutes." });
+      }
+    } catch (err: any) {
+      console.error(err);
+      const errorMessage = err?.response?.data?.error || err.message || "Failed to schedule campaign.";
+      setEmailCampaignStatus(errorMessage);
+      toast({ title: "Error", description: errorMessage, variant: "destructive" });
     }
   };
 
@@ -828,6 +889,97 @@ const AdminDashboard: React.FC = () => {
                       <p className="mt-2 text-2xl font-semibold">KES {Number(stats.totalRevenue).toLocaleString()}</p>
                     </Card>
                   </div>
+
+                  <Card className="p-6">
+                    <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <h2 className="text-lg font-semibold">Email campaign scheduler</h2>
+                        <p className={`text-sm ${mutedTextClass}`}>Schedule one-to-one or mass email campaigns for selected recipients.</p>
+                      </div>
+                      <div className={`rounded-full border px-3 py-1.5 text-sm ${pillClass}`}>{emailCampaignStatus || "Ready to schedule."}</div>
+                    </div>
+
+                    <div className="mb-4 grid gap-4 sm:grid-cols-2">
+                      <div>
+                        <Label htmlFor="emailUserSelect">Send to user</Label>
+                        <select
+                          id="emailUserSelect"
+                          value={selectedEmailUser}
+                          onChange={(e) => handleSelectEmailUser(e.target.value)}
+                          className={`mt-2 w-full rounded-lg border px-3 py-2 ${inputClass}`}
+                        >
+                          <option value="">Choose a user</option>
+                          {users.map((user) => (
+                            <option key={user.id} value={user.email}>{user.full_name || user.email}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <Label htmlFor="emailCampaignType">Campaign type</Label>
+                        <select
+                          id="emailCampaignType"
+                          value={emailCampaignType}
+                          onChange={(e) => setEmailCampaignType(e.target.value as "one-to-one" | "mass")}
+                          className={`mt-2 w-full rounded-lg border px-3 py-2 ${inputClass}`}
+                        >
+                          <option value="mass">Mass email</option>
+                          <option value="one-to-one">One-to-one</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div>
+                        <Label htmlFor="emailCampaignType">Campaign type</Label>
+                        <select
+                          id="emailCampaignType"
+                          value={emailCampaignType}
+                          onChange={(e) => setEmailCampaignType(e.target.value as "one-to-one" | "mass")}
+                          className={`mt-2 w-full rounded-lg border px-3 py-2 ${inputClass}`}
+                        >
+                          <option value="mass">Mass email</option>
+                          <option value="one-to-one">One-to-one</option>
+                        </select>
+                      </div>
+                      <div>
+                        <Label htmlFor="emailCampaignSubject">Subject</Label>
+                        <Input
+                          id="emailCampaignSubject"
+                          value={emailCampaignSubject}
+                          onChange={(e) => setEmailCampaignSubject(e.target.value)}
+                          placeholder="Campaign subject"
+                          className={`mt-2 ${inputClass}`}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="mt-4">
+                      <Label htmlFor="emailCampaignBody">Message</Label>
+                      <Textarea
+                        id="emailCampaignBody"
+                        value={emailCampaignBody}
+                        onChange={(e) => setEmailCampaignBody(e.target.value)}
+                        placeholder="Write your campaign message here..."
+                        className={`mt-2 min-h-[140px] ${inputClass}`}
+                      />
+                    </div>
+
+                    <div className="mt-4">
+                      <Label htmlFor="emailCampaignRecipients">Recipients</Label>
+                      <Textarea
+                        id="emailCampaignRecipients"
+                        value={emailCampaignRecipients}
+                        onChange={(e) => setEmailCampaignRecipients(e.target.value)}
+                        placeholder="Enter emails separated by commas, semicolons or new lines."
+                        className={`mt-2 min-h-[140px] ${inputClass}`}
+                      />
+                    </div>
+
+                    <div className="mt-4 flex flex-wrap items-center gap-3">
+                      <Button onClick={handleRunEmailCampaign}>{emailCampaignType === "mass" ? "Schedule mass campaign" : "Schedule one-to-one campaign"}</Button>
+                      <span className={`text-sm ${mutedTextClass}`}>Emails are sent in batches of 10 every 5 minutes.</span>
+                    </div>
+                  </Card>
 
                   <div className="grid gap-6 xl:grid-cols-2">
                     <Card className="p-6">
@@ -1207,6 +1359,9 @@ const AdminDashboard: React.FC = () => {
                                 />
                                 <Button size="sm" disabled={savingUser === userItem.id} onClick={() => handleUpdateUser(userItem.id, userItem.role || "user", Number(userItem.commission_rate || 15))}>
                                   {savingUser === userItem.id ? "Saving..." : "Save"}
+                                </Button>
+                                <Button size="sm" variant="secondary" onClick={() => handleSelectEmailUser(userItem.email)}>
+                                  Message user
                                 </Button>
                               </div>
                             </div>

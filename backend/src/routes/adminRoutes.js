@@ -15,6 +15,7 @@ const {
   updateUserRoleAndCommission,
   recordSalesCommission,
 } = require("../controllers/adminController");
+const { createEmailCampaign } = require("../controllers/emailController");
 
 const { requireAuth } = require("../middleware/requireAuth");
 
@@ -40,5 +41,6 @@ router.get("/sales-dashboard", requireAuth, getSalesDashboard);
 router.get("/users", requireAuth, getAdminUsers);
 router.patch("/users/:id", requireAuth, updateUserRoleAndCommission);
 router.post("/sales-commission", requireAuth, recordSalesCommission);
+router.post("/email-campaign", requireAuth, createEmailCampaign);
 
 module.exports = router;

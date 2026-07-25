@@ -19,6 +19,7 @@ const { ensureSalesCommissionSchema } = require("./utils/schemaBootstrap");
 require("./jobs/expiry-notify"); // auto-starts on import
 
 dotenv.config();
+require("./jobs/emailCampaigns"); // auto-starts email campaign worker
 
 const app = express();
 
@@ -48,6 +49,13 @@ app.use(
 app.use(bodyParser.json({ limit: "10mb" }));
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(cookieParser());
+
+if (process.env.NODE_ENV !== "production") {
+  app.use((req, res, next) => {
+    console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl}`);
+    next();
+  });
+}
 
 /* ======================================================
    Routes

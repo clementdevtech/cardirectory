@@ -14,7 +14,9 @@ const GOOGLE_CLIENT_SECRET =
   process.env.GOOGLE_CLIENT_SECRET || process.env["google-clientsecret"];
 const GOOGLE_REDIRECT_URI =
   process.env.GOOGLE_REDIRECT_URI ||
-  "https://www.cardirectory.co.ke/api/auth/google-callback";
+  (process.env.NODE_ENV === "production"
+    ? "https://www.cardirectory.co.ke/api/auth/google-callback"
+    : "http://localhost:4000/api/auth/google-callback");
 
 /* ======================================================
    📌 CREATE & SEND VERIFICATION EMAIL

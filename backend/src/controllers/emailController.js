@@ -1,5 +1,6 @@
 const axios = require("axios");
 const { query } = require("../db");
+const logger = require("../logger");
 require("dotenv").config();
 
 /* ENV */
@@ -111,7 +112,7 @@ const sendZohoMail = async (to, subject, html) => {
     }
 
     console.error("Zoho Email Error:", safeJson(err.response?.data || err));
-    return false;
+    throw err;
   }
 };
 
@@ -202,13 +203,111 @@ const sendVerificationEmail = async (email, verifyLink) => {
 const sendMassEmail = async (recipients, subject, message) => {
   const html = generateEmailTemplate(subject, message);
 
-  const results = await Promise.allSettled(recipients.map(email => sendZohoMail(email, subject, html)));
+  const results = await Promise.allSettled(recipients.map((email) => sendZohoMail(email, subject, html)));
 
   const failed = results
-    .map((r, i) => (r.status === "rejected" ? recipients[i] : null))
+    .map((r, i) => (r.status === "rejected" ? { email: recipients[i], error: r.reason?.message || "Send failed" } : null))
     .filter(Boolean);
 
-  return { success: failed.length === 0, failed };
+  return {
+    accepted: failed.length === 0,
+    failed,
+    recipients: recipients.map((email) => ({
+      email,
+      status: failed.some((failure) => failure.email === email) ? "rejected" : "accepted",
+    })),
+  };
+};
+
+const createEmailCampaign = async (req, res) => {
+  try {
+    if (!req.user || req.user.role !== "admin") {
+      return res.status(403).json({ error: "Insufficient permissions." });
+    }
+
+    const { type, subject, body, recipients, batchSize = 10, intervalMinutes = 5 } = req.body;
+
+    if (!subject || !body) {
+      return res.status(400).json({ error: "Subject and body are required." });
+    }
+
+    if (!Array.isArray(recipients) || recipients.length === 0) {
+      return res.status(400).json({ error: "Recipients list is required." });
+    }
+
+    const normalizedRecipients = recipients
+      .map((r) => String(r || "").trim())
+      .filter(Boolean);
+
+    if (!normalizedRecipients.length) {
+      return res.status(400).json({ error: "At least one valid recipient email is required." });
+    }
+
+    const campaignBatchSize = type === "one-to-one" ? 1 : Number(batchSize) || 10;
+    const campaignInterval = Number(intervalMinutes) || 5;
+
+    if (type === "one-to-one") {
+      const result = await sendMassEmail(normalizedRecipients, subject, body);
+      logger.info(`Admin ${req.user.id} submitted one-to-one email to Zoho for recipients: ${normalizedRecipients.join(", ")}.`);
+      logger.info(`Zoho acceptance status: accepted=${result.accepted} rejected=${result.failed.length}`);
+      if (result.failed.length) {
+        logger.info(`One-to-one send failures: ${result.failed.map((failure) => `${failure.email}:${failure.error}`).join(", ")}`);
+      }
+
+      const insertResult = await query(
+        `INSERT INTO email_campaigns
+         (created_by, type, subject, body, recipients, batch_size, interval_minutes, total_recipients, current_batch, sent_count, failed_count, status, next_run_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NULL)
+         RETURNING id, type, subject, batch_size, interval_minutes, total_recipients, status, created_at`,
+        [
+          String(req.user.id),
+          "one-to-one",
+          subject,
+          body,
+          JSON.stringify(normalizedRecipients),
+          campaignBatchSize,
+          campaignInterval,
+          normalizedRecipients.length,
+          1,
+          normalizedRecipients.length - result.failed.length,
+          result.failed.length,
+          result.accepted ? "completed" : "failed",
+        ]
+      );
+
+      return res.status(201).json({
+        message: "Email request accepted by Zoho. Delivery is pending.",
+        campaign: insertResult.rows[0],
+        accepted: normalizedRecipients.length - result.failed.length,
+        failed: result.failed,
+        deliveryStatus: "pending",
+      });
+    }
+
+    logger.info(`Admin ${req.user.id} scheduled a mass email campaign to ${normalizedRecipients.length} recipient(s). Batch size=${campaignBatchSize}, interval=${campaignInterval} min`);
+    const insertResult = await query(
+      `INSERT INTO email_campaigns
+       (created_by, type, subject, body, recipients, batch_size, interval_minutes, total_recipients, next_run_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+       RETURNING id, type, subject, batch_size, interval_minutes, total_recipients, status, created_at`,
+      [
+        String(req.user.id),
+        type || "mass",
+        subject,
+        body,
+        JSON.stringify(normalizedRecipients),
+        campaignBatchSize,
+        campaignInterval,
+        normalizedRecipients.length,
+      ]
+    );
+
+    const campaign = insertResult.rows[0];
+    return res.status(201).json({ message: "Email campaign scheduled.", campaign });
+  } catch (err) {
+    console.error("❌ createEmailCampaign error:", err);
+    res.status(500).json({ error: "Failed to schedule email campaign." });
+  }
 };
 
 /* TRIAL ACTIVATION */
@@ -240,6 +339,8 @@ module.exports = {
   sendPasswordResetEmail,
   sendVerificationEmail,
   sendMassEmail,
+  createEmailCampaign,
+  generateEmailTemplate,
   sendTrialActivationEmail,
   sendTrialReminderEmail,
 };
