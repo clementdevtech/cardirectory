@@ -540,4 +540,5 @@ module.exports = {
   getMe,
   googleLogin,
   googleCallback,
+  googleExchange,
 };
