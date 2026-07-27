@@ -4,6 +4,7 @@ import {
   useEffect,
   useState,
   ReactNode,
+  useCallback,
 } from "react";
 import { User, Session } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
@@ -58,9 +59,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [isLoading, setIsLoading] = useState(true);
 
   // -------------------------------------------------------------------------
-  // Fetch user from backend (JWT)
+  // Fetch user from backend (JWT) - Memoized to prevent infinite loops
   // -------------------------------------------------------------------------
-  const fetchUser = async (): Promise<void> => {
+  const fetchUser = useCallback(async (): Promise<void> => {
     try {
       const token = localStorage.getItem("auth_token");
 
@@ -77,7 +78,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       console.error("❌ Failed to fetch user:", err);
       setUser(null);
     }
-  };
+  }, []);
 
   // -------------------------------------------------------------------------
   // Initialize Authentication
@@ -88,11 +89,18 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         const token = localStorage.getItem("auth_token");
 
         if (token) {
+          // If we have a token in localStorage, fetch the user
           await fetchUser();
         } else {
-          const { data } = await supabase.auth.getSession();
-          setSession(data.session);
-          setUser(data.session?.user ?? null);
+          // No token in localStorage, but try backend (might have a cookie)
+          try {
+            await fetchUser();
+          } catch {
+            // Backend fetch failed, try Supabase
+            const { data } = await supabase.auth.getSession();
+            setSession(data.session);
+            setUser(data.session?.user ?? null);
+          }
         }
       } finally {
         setIsLoading(false);
@@ -109,7 +117,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     );
 
     return () => listener.subscription.unsubscribe();
-  }, []);
+  }, [fetchUser]);
 
   // -------------------------------------------------------------------------
   // SIGN UP

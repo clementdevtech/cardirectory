@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Eye, EyeOff, Loader2 } from "lucide-react";
@@ -9,6 +9,7 @@ const Register = () => {
   const { signUp, refreshUser } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const googleCallbackProcessed = useRef(false);
 
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -20,18 +21,24 @@ const Register = () => {
     password: "",
   });
 
-  // Handle Google login callback
+  // Handle Google login callback - only once
   useEffect(() => {
+    if (googleCallbackProcessed.current) return;
+
     const googleLoginSuccess = searchParams.get('google_login')
     const googleError = searchParams.get('google_error')
 
     if (googleLoginSuccess === 'success') {
+      googleCallbackProcessed.current = true;
       refreshUser().then(() => {
         toast.success('Welcome! Account created and you are now logged in.')
         navigate('/')
         window.history.replaceState({}, document.title, window.location.pathname)
+      }).catch(() => {
+        toast.error('Failed to load user data')
       })
     } else if (googleError) {
+      googleCallbackProcessed.current = true;
       const errorMessages: { [key: string]: string } = {
         cancelled: 'Google registration was cancelled.',
         email_not_verified: 'Your Google email is not verified.',
