@@ -90,6 +90,12 @@ const Navbar = () => {
                 <LayoutDashboard size={16} /> Dealer Dashboard
               </Link>
             )}
+
+            {(userRole === "salesperson" || userRole === "sales") && (
+              <Link to="/sales-dashboard" className="flex items-center gap-1 text-primary font-medium">
+                <LayoutDashboard size={16} /> Sales Dashboard
+              </Link>
+            )}
           </div>
 
           {/* Desktop Right Side */}
@@ -193,6 +199,16 @@ const Navbar = () => {
               className="flex items-center gap-2 text-primary font-semibold"
             >
               <LayoutDashboard size={16} /> Dealer Dashboard
+            </Link>
+          )}
+
+          {(userRole === "salesperson" || userRole === "sales") && (
+            <Link
+              to="/sales-dashboard"
+              onClick={() => setMobileMenuOpen(false)}
+              className="flex items-center gap-2 text-primary font-semibold"
+            >
+              <LayoutDashboard size={16} /> Sales Dashboard
             </Link>
           )}
 
