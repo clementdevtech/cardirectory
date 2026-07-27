@@ -17,6 +17,7 @@ const Navbar = () => {
   const [touchEndX, setTouchEndX] = useState(0);
 
   const userRole = user?.role;
+  console.log("User Role:", userRole); // Debugging line to check the user role
 
   // ✅ Handle Logout
   const handleLogout = async () => {
@@ -202,7 +203,7 @@ const Navbar = () => {
             </Link>
           )}
 
-          {(userRole === "salesperson" || userRole === "sales") && (
+          {(userRole === "Salesperson" || userRole === "sales") && (
             <Link
               to="/sales-dashboard"
               onClick={() => setMobileMenuOpen(false)}
