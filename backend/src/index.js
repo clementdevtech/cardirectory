@@ -100,6 +100,6 @@ app.listen(PORT, HOST, () => {
   console.log("🕒 Cron jobs initialized");
   // Log OAuth config presence (do not print secrets)
   const googleClientId = process.env.GOOGLE_CLIENT_ID || process.env["google-clientid"];
-  const googleRedirect = process.env.GOOGLE_REDIRECT_URI || (process.env.NODE_ENV === "production" ? "https://www.cardirectory.co.ke/api/auth/google-callback" : "http://localhost:4000/api/auth/google-callback");
+  const googleRedirect = process.env.GOOGLE_REDIRECT_URI || (process.env.NODE_ENV === "production" ? "https://cardirectory.onrender.com/api/auth/google-callback" : "http://localhost:4000/api/auth/google-callback");
   console.log(`Google OAuth configured: ${Boolean(googleClientId)}; redirect_uri: ${googleRedirect}`);
 });
