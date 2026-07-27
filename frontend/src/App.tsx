@@ -78,7 +78,7 @@ const router = createBrowserRouter(
     {
       path: "/admin",
       element: (
-        <ProtectedRoute>
+        <ProtectedRoute allowedRoles={["admin"]} redirectTo="/">
           <AdminDashboard />
         </ProtectedRoute>
       ),
@@ -86,7 +86,7 @@ const router = createBrowserRouter(
     {
       path: "/dealer",
       element: (
-        <ProtectedRoute>
+        <ProtectedRoute allowedRoles={["dealer"]} redirectTo="/">
           <DealerDashboard />
         </ProtectedRoute>
       ),
@@ -94,7 +94,7 @@ const router = createBrowserRouter(
     {
       path: "/sales-dashboard",
       element: (
-        <ProtectedRoute>
+        <ProtectedRoute allowedRoles={["salesperson", "sales"]} redirectTo="/">
           <SalesDashboard />
         </ProtectedRoute>
       ),

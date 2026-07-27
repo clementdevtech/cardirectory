@@ -25,8 +25,14 @@ interface SignUpResponse {
   error?: string;
 }
 
+type AuthUser = User & {
+  role?: string;
+  full_name?: string;
+  is_verified?: boolean;
+};
+
 interface AuthContextType {
-  user: User | null;
+  user: AuthUser | null;
   session: Session | null;
   isLoading: boolean;
   signUp: (
@@ -54,8 +60,19 @@ const AuthContext = createContext<AuthContextType>({
 
 export const useAuth = (): AuthContextType => useContext(AuthContext);
 
+const normalizeAuthUser = (value: any): AuthUser | null => {
+  if (!value) return null;
+
+  return {
+    ...value,
+    role: value.role ?? value.app_metadata?.role ?? value.user_metadata?.role ?? undefined,
+    full_name: value.full_name ?? value.user_metadata?.full_name ?? value.name ?? undefined,
+    is_verified: value.is_verified ?? Boolean(value.email_confirmed_at),
+  } as AuthUser;
+};
+
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<AuthUser | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -73,8 +90,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
       if (!res.ok) throw new Error("Failed to fetch user info");
 
-      const data: { user: User } = await res.json();
-      setUser(data?.user ?? null);
+      const data: { user: AuthUser } = await res.json();
+      setUser(normalizeAuthUser(data?.user));
     } catch (err) {
       console.error("❌ Failed to fetch user:", err);
       setUser(null);
@@ -104,7 +121,17 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             // Backend fetch failed, try Supabase
             const { data } = await supabase.auth.getSession();
             setSession(data.session);
-            setUser(data.session?.user ?? null);
+            setUser((prevUser) => {
+              if (!data.session?.user) return prevUser;
+              return normalizeAuthUser({
+                ...data.session.user,
+                ...(prevUser ? {
+                  role: prevUser.role,
+                  full_name: prevUser.full_name,
+                  is_verified: prevUser.is_verified,
+                } : {}),
+              });
+            });
           }
         }
       } finally {
@@ -117,7 +144,17 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const { data: listener } = supabase.auth.onAuthStateChange(
       (_event, session) => {
         setSession(session);
-        setUser(session?.user ?? null);
+        setUser((prevUser) => {
+          if (!session?.user) return prevUser;
+          return normalizeAuthUser({
+            ...session.user,
+            ...(prevUser ? {
+              role: prevUser.role,
+              full_name: prevUser.full_name,
+              is_verified: prevUser.is_verified,
+            } : {}),
+          });
+        });
       }
     );
 
@@ -131,13 +168,32 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       }
     };
 
+    const handleWindowFocus = () => {
+      void handleRoleRefresh();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void handleRoleRefresh();
+      }
+    };
+
+    const pollInterval = window.setInterval(() => {
+      void handleRoleRefresh();
+    }, 10000);
+
     window.addEventListener("auth-role-updated", handleRoleRefresh);
     window.addEventListener("storage", handleStorageRoleRefresh);
+    window.addEventListener("focus", handleWindowFocus);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
       listener.subscription.unsubscribe();
+      window.clearInterval(pollInterval);
       window.removeEventListener("auth-role-updated", handleRoleRefresh);
       window.removeEventListener("storage", handleStorageRoleRefresh);
+      window.removeEventListener("focus", handleWindowFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [fetchUser]);
 
@@ -203,7 +259,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
       if (data.token) localStorage.setItem("auth_token", data.token);
 
-      setUser(data.user ?? null);
+      setUser(normalizeAuthUser(data.user));
       setSession(data.session ?? null);
 
       toast.success("Login successful!");

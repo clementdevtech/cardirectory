@@ -4,9 +4,11 @@ import { ReactNode } from "react";
 
 interface ProtectedRouteProps {
   children: ReactNode;
+  allowedRoles?: string[];
+  redirectTo?: string;
 }
 
-const ProtectedRoute = ({ children }: ProtectedRouteProps) => {
+const ProtectedRoute = ({ children, allowedRoles = [], redirectTo = "/" }: ProtectedRouteProps) => {
   const { user, isLoading } = useAuth();
 
   //console.log("🔒 ProtectedRoute check:", { user });
@@ -26,6 +28,15 @@ const ProtectedRoute = ({ children }: ProtectedRouteProps) => {
   if (!user) {
     //console.log("🚫 No user found — redirecting to login");
     return <Navigate to="/login" replace />;
+  }
+
+  if (allowedRoles.length > 0) {
+    const currentRole = (user?.role || "").toLowerCase();
+    const hasRequiredRole = allowedRoles.some((role) => role.toLowerCase() === currentRole);
+
+    if (!hasRequiredRole) {
+      return <Navigate to={redirectTo} replace />;
+    }
   }
 
   // ✅ Only render when the user is confirmed
