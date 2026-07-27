@@ -6,6 +6,8 @@ const {
   forgotPassword,
   verifyEmailStatus,
   getMe,
+  refreshAuthSession,
+  refreshAuthSession,
   resendVerification,
   googleLogin,
   googleCallback,
@@ -21,6 +23,7 @@ router.post("/forgot-password", forgotPassword);
 router.get("/verify-email", verifyEmailStatus);
 router.post("/resend-verification", resendVerification);
 router.get("/me", getMe);
+router.post("/refresh-session", refreshAuthSession);
 router.get("/google", googleLogin);
 router.get("/google-callback", googleCallback);
 router.post("/google/exchange", googleExchange);

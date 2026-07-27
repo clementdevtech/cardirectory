@@ -528,6 +528,55 @@ const getMe = async (req, res) => {
   }
 };
 
+const refreshAuthSession = async (req, res) => {
+  try {
+    const bearer = req.headers.authorization?.split(" ")[1];
+    const token = bearer || req.cookies?.auth_token;
+
+    if (!token) {
+      return res.status(401).json({ success: false, error: "Unauthorized" });
+    }
+
+    const decoded = jwt.verify(token, JWT_SECRET);
+    const result = await query(
+      "SELECT id, full_name, email, role, is_verified FROM users WHERE id = $1 LIMIT 1",
+      [decoded.id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, error: "User not found" });
+    }
+
+    const user = result.rows[0];
+    const refreshedToken = jwt.sign(
+      { id: user.id, email: user.email, role: user.role },
+      JWT_SECRET,
+      { expiresIn: "7d" }
+    );
+
+    res.cookie("auth_token", refreshedToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: process.env.NODE_ENV === "production" ? "none" : "strict",
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
+
+    return res.json({
+      success: true,
+      token: refreshedToken,
+      user: {
+        id: user.id,
+        full_name: user.full_name,
+        email: user.email,
+        role: user.role,
+        is_verified: user.is_verified,
+      },
+    });
+  } catch (err) {
+    return res.status(401).json({ success: false, error: "Unauthorized" });
+  }
+};
+
 module.exports = {
   sendVerificationLink,
   registerUser,
@@ -538,6 +587,7 @@ module.exports = {
   verifyEmailStatus,
   resendVerification,
   getMe,
+  refreshAuthSession,
   googleLogin,
   googleCallback,
   googleExchange,

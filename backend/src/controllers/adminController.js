@@ -104,7 +104,22 @@ const updateUserRoleAndCommission = async (req, res) => {
       values
     );
 
-    res.json({ message: "User updated", user: result.rows[0] });
+    if (role) {
+      await query(
+        `INSERT INTO user_roles (user_id, role)
+         VALUES ($1, $2)
+         ON CONFLICT (user_id)
+         DO UPDATE SET role = EXCLUDED.role`,
+        [id, role]
+      );
+    }
+
+    const refreshedResult = await query(
+      `SELECT id, full_name, email, role, commission_rate FROM users WHERE id = $1`,
+      [id]
+    );
+
+    res.json({ message: "User updated", user: refreshedResult.rows[0] });
   } catch (err) {
     console.error("❌ updateUserRoleAndCommission error:", err.message);
     res.status(500).json({ error: err.message });
