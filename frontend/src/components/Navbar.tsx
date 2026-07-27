@@ -91,7 +91,7 @@ const Navbar = () => {
               </Link>
             )}
 
-            {(userRole === "salesperson" || userRole === "sales") && (
+            {(userRole === "Salesperson" || userRole === "sales") && (
               <Link to="/sales-dashboard" className="flex items-center gap-1 text-primary font-medium">
                 <LayoutDashboard size={16} /> Sales Dashboard
               </Link>
