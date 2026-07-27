@@ -1,13 +1,14 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useAuth } from "@/hooks/useAuth";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Eye, EyeOff, Loader2 } from "lucide-react";
 import { toast } from "react-toastify";
 import logo from "@/assets/logo.png";
 
 const Register = () => {
-  const { signUp } = useAuth();
+  const { signUp, refreshUser } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -18,6 +19,28 @@ const Register = () => {
     email: "",
     password: "",
   });
+
+  // Handle Google login callback
+  useEffect(() => {
+    const googleLoginSuccess = searchParams.get('google_login')
+    const googleError = searchParams.get('google_error')
+
+    if (googleLoginSuccess === 'success') {
+      refreshUser().then(() => {
+        toast.success('Welcome! Account created and you are now logged in.')
+        navigate('/')
+        window.history.replaceState({}, document.title, window.location.pathname)
+      })
+    } else if (googleError) {
+      const errorMessages: { [key: string]: string } = {
+        cancelled: 'Google registration was cancelled.',
+        email_not_verified: 'Your Google email is not verified.',
+        failed: 'Google registration failed. Please try again.',
+      }
+      toast.error(errorMessages[googleError] || 'Google registration failed.')
+      window.history.replaceState({}, document.title, window.location.pathname)
+    }
+  }, [searchParams, refreshUser, navigate])
 
   const validateEmail = (email: string) =>
     /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);

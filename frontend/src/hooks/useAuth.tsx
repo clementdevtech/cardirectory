@@ -37,6 +37,7 @@ interface AuthContextType {
   signIn: (email: string, password: string) => Promise<SignInResponse>;
   signOut: () => Promise<void>;
   verifyEmailStatus: (token: string) => Promise<boolean>;
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -232,6 +233,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         signIn,
         signOut,
         verifyEmailStatus,
+        refreshUser: fetchUser,
       }}
     >
       {children}
