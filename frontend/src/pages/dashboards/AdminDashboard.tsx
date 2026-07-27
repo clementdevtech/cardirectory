@@ -43,6 +43,7 @@ import { Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip } from "recha
 import { useCarForm } from "@/hooks/useCarForm";
 import { useCarUploads } from "@/hooks/useCarUploads";
 import { useLocationSearch } from "@/hooks/useLocationSearch";
+import { useAuth } from "@/hooks/useAuth";
 
 type Car = {
   id: number;
@@ -100,6 +101,7 @@ type ChartRange = "all" | "30d" | "7d";
 
 const AdminDashboard: React.FC = () => {
   const { toast } = useToast();
+  const { user, refreshUser } = useAuth();
 
   const [cars, setCars] = useState<Car[]>([]);
   const [dealers, setDealers] = useState<Dealer[]>([]);
@@ -678,6 +680,14 @@ const AdminDashboard: React.FC = () => {
     try {
       setSavingUser(userId);
       await axiosInstance.patch(`/users/${userId}`, { role, commission_rate: commissionRate });
+
+      if (user?.id === userId) {
+        await refreshUser();
+      }
+
+      localStorage.setItem("auth-role-updated", `${Date.now()}:${userId}`);
+      window.dispatchEvent(new Event("auth-role-updated"));
+
       toast({ title: "User updated successfully" });
       fetchDashboardData();
     } catch (err: any) {

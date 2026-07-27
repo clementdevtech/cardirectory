@@ -49,6 +49,7 @@ const AuthContext = createContext<AuthContextType>({
   signIn: async () => ({ success: false }),
   signOut: async () => Promise.resolve(),
   verifyEmailStatus: async () => false,
+  refreshUser: async () => undefined,
 });
 
 export const useAuth = (): AuthContextType => useContext(AuthContext);
@@ -79,6 +80,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setUser(null);
     }
   }, []);
+
+  const refreshUser = useCallback(async (): Promise<void> => {
+    await fetchUser();
+  }, [fetchUser]);
 
   // -------------------------------------------------------------------------
   // Initialize Authentication
@@ -116,7 +121,24 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       }
     );
 
-    return () => listener.subscription.unsubscribe();
+    const handleRoleRefresh = () => {
+      void fetchUser();
+    };
+
+    const handleStorageRoleRefresh = (event: StorageEvent) => {
+      if (event.key === "auth-role-updated") {
+        handleRoleRefresh();
+      }
+    };
+
+    window.addEventListener("auth-role-updated", handleRoleRefresh);
+    window.addEventListener("storage", handleStorageRoleRefresh);
+
+    return () => {
+      listener.subscription.unsubscribe();
+      window.removeEventListener("auth-role-updated", handleRoleRefresh);
+      window.removeEventListener("storage", handleStorageRoleRefresh);
+    };
   }, [fetchUser]);
 
   // -------------------------------------------------------------------------
@@ -241,7 +263,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         signIn,
         signOut,
         verifyEmailStatus,
-        refreshUser: fetchUser,
+        refreshUser,
       }}
     >
       {children}
