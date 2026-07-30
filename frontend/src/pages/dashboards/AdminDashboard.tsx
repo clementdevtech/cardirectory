@@ -141,10 +141,9 @@ const AdminDashboard: React.FC = () => {
   const [emailCampaignBody, setEmailCampaignBody] = useState("");
   const [emailCampaignType, setEmailCampaignType] = useState<"one-to-one" | "mass">("mass");
   const [emailCampaignRecipients, setEmailCampaignRecipients] = useState("");
+  const pageSize = 10;
   const [selectedEmailUser, setSelectedEmailUser] = useState<string>("");
   const [emailCampaignStatus, setEmailCampaignStatus] = useState<string>("");
-
-  const pageSize = 5;
 
   const navigationItems = [
     { id: "overview", label: "Overview", description: "Summary and insights", icon: BarChart3 },

@@ -227,7 +227,6 @@ const getAllCars = async (req, res) => {
       SELECT c.*, d.full_name AS dealer_name, d.company_name
       FROM cars c
       LEFT JOIN dealers d ON c.dealer_id = d.id
-      WHERE d.status = 'verified'
       ORDER BY c.created_at DESC
     `);
     res.json(result.rows);
