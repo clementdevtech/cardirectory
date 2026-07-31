@@ -5,6 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent } from "@/components/ui/card";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
+import CarCardMedia from "@/components/CarCardMedia";
 import { X, ChevronLeft, ChevronRight } from "lucide-react";
 
 const formatPrice = (price: number) =>
@@ -26,6 +27,7 @@ interface Car {
   featured: boolean;
   transmission: string | null;
   phone: string | null;
+  video_url: string | null;
 }
 
 const BrowseCars = () => {
@@ -100,25 +102,20 @@ const BrowseCars = () => {
                     : car.image
                     ? [car.image]
                     : ["/placeholder-car.jpg"];
-                const mainImage = images[0];
-
                 return (
                   <Card
                     key={car.id}
                     className="group hover:shadow-lg transition-all duration-300 overflow-hidden"
                   >
                     <div
-                      className="relative w-full h-52 overflow-hidden cursor-pointer"
+                      className="relative w-full h-36 sm:h-52 overflow-hidden cursor-pointer"
                       onClick={() => openLightbox(images)}
                     >
-                      <img
-                        src={mainImage}
+                      <CarCardMedia
+                        images={images}
+                        videoUrl={car.video_url}
                         alt={`${car.make} ${car.model}`}
-                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                        onError={(e) =>
-                          ((e.target as HTMLImageElement).src =
-                            "/placeholder-car.jpg")
-                        }
+                        className="h-full"
                       />
                       {car.featured && (
                         <span className="absolute top-2 left-2 bg-primary text-white text-xs px-2 py-1 rounded">
@@ -127,21 +124,21 @@ const BrowseCars = () => {
                       )}
                     </div>
 
-                    <CardContent className="p-4">
-                      <h3 className="font-semibold text-lg text-gray-800">
+                    <CardContent className="p-2 sm:p-4">
+                      <h3 className="font-semibold text-sm sm:text-lg text-gray-800 truncate">
                         {car.make} {car.model} ({car.year})
                       </h3>
-                      <p className="text-blue-600 font-bold mt-1">
+                      <p className="text-blue-600 font-bold text-sm sm:text-base mt-1 truncate">
                         {formatPrice(Number(car.price))}
                       </p>
-                      <p className="text-sm text-gray-500 mt-1">
+                      <p className="text-[11px] sm:text-sm text-gray-500 mt-1 truncate">
                         {car.mileage.toLocaleString()} km •{" "}
                         {car.transmission || "N/A"}
                       </p>
 
-                      <div className="flex gap-2 mt-4">
+                      <div className="flex gap-1 sm:gap-2 mt-2 sm:mt-4">
                         <Link to={`/cars/${car.id}`} className="flex-1">
-                          <button className="w-full py-2 bg-gray-800 text-white rounded hover:bg-gray-900 transition">
+                          <button className="w-full py-1.5 sm:py-2 text-xs sm:text-sm bg-gray-800 text-white rounded hover:bg-gray-900 transition">
                             View Details
                           </button>
                         </Link>
@@ -152,7 +149,7 @@ const BrowseCars = () => {
                           )}?text=Hi! I'm interested in your ${car.make} ${car.model}`}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="px-3 py-2 border rounded hover:bg-gray-100"
+                          className="px-2 sm:px-3 py-1.5 sm:py-2 text-[11px] sm:text-sm border rounded hover:bg-gray-100"
                         >
                           WhatsApp
                         </a>

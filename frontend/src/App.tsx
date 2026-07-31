@@ -92,6 +92,14 @@ const router = createBrowserRouter(
       ),
     },
     {
+      path: "/dealer/profile",
+      element: (
+        <ProtectedRoute allowedRoles={["dealer"]} redirectTo="/">
+          <DealerDashboard />
+        </ProtectedRoute>
+      ),
+    },
+    {
       path: "/sales-dashboard",
       element: (
         <ProtectedRoute allowedRoles={["salesperson", "sales"]} redirectTo="/">

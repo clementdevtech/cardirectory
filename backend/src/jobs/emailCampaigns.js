@@ -1,6 +1,6 @@
 const cron = require("node-cron");
 const { query } = require("../db");
-const { sendZohoMail, generateEmailTemplate } = require("../controllers/emailController");
+const { sendEmail, generateEmailTemplate } = require("../controllers/emailController");
 const logger = require("../logger");
 
 cron.schedule("*/1 * * * *", async () => {
@@ -34,7 +34,7 @@ cron.schedule("*/1 * * * *", async () => {
 
       const html = generateEmailTemplate(campaign.subject, campaign.body);
       const results = await Promise.allSettled(
-        batchRecipients.map((recipient) => sendZohoMail(recipient, campaign.subject, html))
+        batchRecipients.map((recipient) => sendEmail(recipient, campaign.subject, html))
       );
 
       const failureAddresses = results

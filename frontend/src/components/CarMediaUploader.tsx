@@ -6,6 +6,7 @@ interface Props {
 }
 
 export default function CarMediaUploader({ onUploadComplete }: Props) {
+  const MAX_VIDEO_SIZE = 5 * 1024 * 1024;
   const [images, setImages] = useState<File[]>([]);
   const [video, setVideo] = useState<File | null>(null);
   const [progress, setProgress] = useState<Record<string, number>>({});
@@ -76,7 +77,16 @@ export default function CarMediaUploader({ onUploadComplete }: Props) {
         <input
           type="file"
           accept="video/*"
-          onChange={(e) => setVideo(e.target.files?.[0] || null)}
+          onChange={(e) => {
+            const selectedVideo = e.target.files?.[0] || null;
+            if (selectedVideo && selectedVideo.size > MAX_VIDEO_SIZE) {
+              alert("Video must be 5 MB or smaller.");
+              e.target.value = "";
+              setVideo(null);
+              return;
+            }
+            setVideo(selectedVideo);
+          }}
           className="mt-1"
         />
 

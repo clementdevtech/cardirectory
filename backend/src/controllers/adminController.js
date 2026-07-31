@@ -1,7 +1,7 @@
 const bcrypt = require("bcryptjs");
 const { v4: uuidv4 } = require("uuid");
 const { query } = require("../db");
-const { sendZohoMail } = require("./emailController");
+const { sendEmail, sendMassEmail } = require("./emailController");
 const { uploadLogoToR2 } = require("../utils/cloudflareUpload");
 
 const getSalesDashboard = async (req, res) => {
@@ -112,6 +112,24 @@ const updateUserRoleAndCommission = async (req, res) => {
          DO UPDATE SET role = EXCLUDED.role`,
         [id, role]
       );
+
+      if (role === "dealer") {
+        const userResult = await query(
+          `SELECT full_name, email, phone FROM users WHERE id = $1`,
+          [id]
+        );
+
+        if (userResult.rows.length > 0) {
+          const user = userResult.rows[0];
+          await query(
+            `INSERT INTO dealers
+              (id, user_id, full_name, company_name, email, phone, status, created_at)
+             VALUES ($1, $2, $3, $3, $4, $5, 'pending', NOW())
+             ON CONFLICT (user_id) DO NOTHING`,
+            [uuidv4(), id, user.full_name, user.email, user.phone || null]
+          );
+        }
+      }
     }
 
     const refreshedResult = await query(
@@ -433,6 +451,29 @@ const toggleFeatured = async (req, res) => {
       [featured, id]
     );
 
+    if (featured && result.rows[0]) {
+      try {
+        const usersResult = await query(
+          `SELECT email FROM users WHERE email IS NOT NULL AND email <> ''`
+        );
+        const recipients = usersResult.rows.map((user) => user.email);
+        if (recipients.length) {
+          const car = result.rows[0];
+          await sendMassEmail(
+            recipients,
+            "New Featured Car on CarDirectory",
+            `A new vehicle has been featured on CarDirectory:<br/><br/>
+             <b>${car.make || "Vehicle"} ${car.model || ""}</b><br/>
+             ${car.location ? `Location: ${car.location}<br/>` : ""}
+             ${car.price ? `Price: KES ${Number(car.price).toLocaleString()}<br/>` : ""}
+             <br/><a href="${process.env.FRONTEND_URL}/cars/${car.id}">View vehicle</a>`
+          );
+        }
+      } catch (emailError) {
+        console.error("Featured car notification failed:", emailError.message);
+      }
+    }
+
     res.json({
       message: featured
         ? "✅ Car marked as featured"
@@ -537,7 +578,7 @@ const addDealer = async (req, res) => {
       [dealerId, userId, full_name, company_name, email, phone, country, logoUrl, referredBy]
     );
 
-    await sendZohoMail(
+    await sendEmail(
       email,
       "Your Dealer Account Login",
       `

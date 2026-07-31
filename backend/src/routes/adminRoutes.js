@@ -17,7 +17,7 @@ const {
 } = require("../controllers/adminController");
 const { createEmailCampaign } = require("../controllers/emailController");
 
-const { requireAuth } = require("../middleware/requireAuth");
+const { requireAuth, requireRole } = require("../middleware/requireAuth");
 
 const router = express.Router();
 
@@ -38,8 +38,8 @@ router.delete("/dealers/:id", deleteDealer);
 // 📊 Sales Routes
 router.get("/sales-dashboard/:userId", requireAuth, getSalesDashboard);
 router.get("/sales-dashboard", requireAuth, getSalesDashboard);
-router.get("/users", requireAuth, getAdminUsers);
-router.patch("/users/:id", requireAuth, updateUserRoleAndCommission);
+router.get("/users", requireAuth, requireRole("admin"), getAdminUsers);
+router.patch("/users/:id", requireAuth, requireRole("admin"), updateUserRoleAndCommission);
 router.post("/sales-commission", requireAuth, recordSalesCommission);
 router.post("/email-campaign", requireAuth, createEmailCampaign);
 

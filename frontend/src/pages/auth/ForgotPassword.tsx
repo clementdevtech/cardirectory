@@ -3,6 +3,7 @@ import axios from "axios";
 import { toast } from "react-toastify";
 import { Loader2, MailCheck, MailWarning } from "lucide-react";
 import { Link } from "react-router-dom";
+import logo from "@/assets/logo.png";
 
 const API_BASE_URL = import.meta.env.VITE_BACKEND_URL; // Example: http://localhost:5000/api
 
@@ -50,26 +51,38 @@ const ForgotPassword = () => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-900 via-blue-900 to-purple-900 px-4 py-10">
-      <div className="bg-white/10 backdrop-blur-md border border-white/20 shadow-2xl rounded-2xl w-full max-w-md p-8">
-        <h2 className="text-3xl font-bold text-center text-white mb-2">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100 p-4">
+      <div className="bg-white shadow-2xl rounded-2xl w-full max-w-md p-8 space-y-6 transition-all duration-300 hover:shadow-red-100">
+        <div className="flex flex-col items-center text-center">
+          <div className="flex items-center justify-center space-x-2 mb-3">
+            <img
+              src={logo}
+              alt="CarDirectory Logo"
+              className="h-10 w-10 object-contain rounded-md"
+            />
+            <span className="text-2xl font-bold text-gray-800">
+              Car<span className="text-[#8B0000]">Directory</span>
+            </span>
+          </div>
+          <h2 className="text-2xl font-bold text-gray-800">
           Forgot Password
-        </h2>
-        <p className="text-center text-gray-300 mb-6 text-sm">
+          </h2>
+        <p className="text-center text-gray-600 text-sm">
           Enter your email and we’ll send you a reset link.
         </p>
+        </div>
 
-        <form onSubmit={handleReset} className="space-y-5">
+        <form onSubmit={handleReset} className="space-y-5 mt-4">
           <div className="relative">
             <input
               type="email"
               placeholder="Enter your email address"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className={`w-full p-3 bg-white/20 text-white placeholder-gray-300 border rounded-xl outline-none focus:ring-2 transition-all ${
+              className={`w-full p-3 border rounded-xl outline-none focus:ring-2 transition-all pr-12 ${
                 emailError
-                  ? "border-red-400 focus:ring-red-300"
-                  : "border-white/30 focus:ring-purple-400"
+                  ? "border-red-500 ring-red-200"
+                  : "focus:ring-[#b44b3e]"
               }`}
               disabled={isSent}
               required
@@ -77,16 +90,16 @@ const ForgotPassword = () => {
             {isSent ? (
               <MailCheck
                 size={20}
-                className="absolute right-3 top-3 text-green-400"
+                className="absolute right-3 top-3 text-green-500"
               />
             ) : emailError ? (
               <MailWarning
                 size={20}
-                className="absolute right-3 top-3 text-red-400"
+                className="absolute right-3 top-3 text-red-500"
               />
             ) : null}
             {emailError && (
-              <p className="text-red-400 text-sm mt-1">{emailError}</p>
+              <p className="text-red-500 text-sm mt-1">{emailError}</p>
             )}
           </div>
 
@@ -95,8 +108,8 @@ const ForgotPassword = () => {
             disabled={isLoading || isSent}
             className={`w-full py-3 rounded-xl font-semibold text-white transition-all duration-200 shadow-md ${
               isLoading || isSent
-                ? "bg-purple-400 cursor-not-allowed"
-                : "bg-gradient-to-r from-purple-600 to-blue-600 hover:opacity-90 hover:shadow-lg"
+                ? "bg-[#b44b3e] opacity-70 cursor-not-allowed"
+                  : "bg-[#b44b3e] hover:bg-[#8B0000] shadow-md hover:shadow-red-200"
             }`}
           >
             {isLoading ? (
@@ -109,18 +122,18 @@ const ForgotPassword = () => {
           </button>
 
           {isSent && (
-            <p className="text-sm text-center text-gray-300">
+              <p className="text-sm text-center text-gray-600">
               Didn’t receive it? Check your spam folder or try again later.
             </p>
           )}
         </form>
 
-        <div className="text-center mt-6">
-          <p className="text-gray-300 text-sm">
+        <div className="text-center">
+          <p className="text-gray-600 text-sm">
             Remembered your password?{" "}
             <Link
               to="/login"
-              className="text-purple-300 hover:text-white underline transition-all"
+              className="text-[#b44b3e] hover:underline font-semibold"
             >
               Back to Login
             </Link>

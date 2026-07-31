@@ -87,7 +87,7 @@ const DealerCarForm: React.FC<any> = (props) => {
     setSubmitError("");
 
     try {
-      const res = await fetch(`${API_BASE}/admin/cars`, {
+      const res = await fetch(`${API_BASE}/dealer/cars/draft`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -95,7 +95,8 @@ const DealerCarForm: React.FC<any> = (props) => {
         },
         body: JSON.stringify({
           ...form,
-          status: "pending", // dealer_id should come from JWT on backend
+          gallery: form.gallery || [],
+          video_url: form.video_url || null,
         }),
       });
 

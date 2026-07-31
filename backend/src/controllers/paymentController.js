@@ -89,7 +89,9 @@ exports.createPesaPalOrder = async (req, res) => {
 
     const token = await getPesapalToken();
 
-    const redirect_url = `${FRONTEND_URL}/payment-status?ref=${merchant_reference}`;
+    const redirect_url = `${FRONTEND_URL}/payment-status?merchant_reference=${encodeURIComponent(
+      merchant_reference
+    )}`;
 
     const order = {
       id: merchant_reference,
@@ -182,7 +184,7 @@ exports.handlePesapalIPN = async (req, res) => {
     const payment = paymentResult.rows[0];
 
     const userResult = await query(
-      `SELECT email, full_name FROM users WHERE id = $1`,
+      `SELECT email, full_name, phone FROM users WHERE id = $1`,
       [payment.user_id]
     );
 
@@ -240,6 +242,21 @@ exports.handlePesapalIPN = async (req, res) => {
            ON CONFLICT (user_id)
            DO UPDATE SET role='dealer'`,
           [payment.user_id]
+        );
+
+        await query(
+          `INSERT INTO dealers
+            (user_id, full_name, email, phone, status, created_at)
+           SELECT $1, $2, $3, $4, 'pending', NOW()
+           WHERE NOT EXISTS (
+             SELECT 1 FROM dealers WHERE user_id = $1
+           )`,
+          [
+            payment.user_id,
+            user?.full_name || "Unnamed Dealer",
+            user?.email,
+            user?.phone || null,
+          ]
         );
 
         if (user && user.email) {

@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -45,6 +45,25 @@ const CarForm: React.FC<Props> = ({
   onSubmit,
   onCancelEdit,
 }) => {
+  const [locationSelected, setLocationSelected] = useState(Boolean(form.location));
+
+  useEffect(() => {
+    if (!form.location) setLocationSelected(false);
+  }, [form.location]);
+
+  const handleLocationChange = (value: string) => {
+    setLocationSelected((selected) => selected || Boolean(form.location));
+    setLocationQuery(value);
+    setForm({ ...form, location: value });
+  };
+
+  const handleSuggestionSelect = (place: any) => {
+    setLocationSelected(true);
+    setForm({ ...form, location: place.formatted });
+    setLocationQuery(place.formatted);
+    onSelectSuggestion(place);
+  };
+
   return (
     <form onSubmit={onSubmit} className="space-y-6">
 
@@ -164,15 +183,15 @@ const CarForm: React.FC<Props> = ({
       <Label>Location</Label>
       <Input
         value={locationQuery || form.location || ""}
-        onChange={(e) => setLocationQuery(e.target.value)}
-        placeholder="Search location..."
+        onChange={(e) => handleLocationChange(e.target.value)}
+        placeholder="Enter or search location..."
       />
 
-      {suggestions.map((s) => (
+      {!locationSelected && suggestions.map((s) => (
         <div
           key={s.place_id}
           className="p-2 border cursor-pointer hover:bg-gray-100"
-          onClick={() => onSelectSuggestion(s)}
+          onClick={() => handleSuggestionSelect(s)}
         >
           {s.formatted}
         </div>

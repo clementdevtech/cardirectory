@@ -55,6 +55,7 @@ const PostVehicle: React.FC = () => {
   const [locationQuery, setLocationQuery] = useState("");
   const [suggestions, setSuggestions] = useState<GeoapifyPlace[]>([]);
   const [isFetching, setIsFetching] = useState(false);
+  const [locationSelected, setLocationSelected] = useState(false);
 
   // 🧩 Step validation
   const validateStep = () => {
@@ -85,7 +86,7 @@ const PostVehicle: React.FC = () => {
   // 🧠 Geoapify Autocomplete + Supabase Cache (24-hour expiry)
   useEffect(() => {
     const fetchSuggestions = async () => {
-      if (!locationQuery.trim()) {
+      if (locationSelected || !locationQuery.trim()) {
         setSuggestions([]);
         return;
       }
@@ -147,7 +148,7 @@ const PostVehicle: React.FC = () => {
 
     const timeout = setTimeout(fetchSuggestions, 400); // debounce
     return () => clearTimeout(timeout);
-  }, [locationQuery]);
+  }, [locationQuery, locationSelected]);
 
   // 📸 Upload with progress
   const uploadWithProgress = (
@@ -177,6 +178,12 @@ const PostVehicle: React.FC = () => {
       xhr.send(fd);
     });
 
+  const validateVideoSize = (file: File | null) => {
+    if (file && file.size > 5 * 1024 * 1024) {
+      throw new Error("Video must be 5 MB or smaller.");
+    }
+  };
+
   // 🧾 Submit Handler
 const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
   e.preventDefault();
@@ -200,7 +207,7 @@ const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
 
     let videoUrl: string | null = null;
     if (videoFile) {
-      if (videoFile.size > 20 * 1024 * 1024) throw new Error("Video exceeds 20MB limit.");
+      validateVideoSize(videoFile);
       videoUrl = await uploadWithProgress(videoFile, "video", (progress) =>
         setVideoProgress({ fileName: videoFile.name, progress })
       );
@@ -424,14 +431,17 @@ const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
                       <Input
                         type="text"
                         value={locationQuery || form.location}
-                        onChange={(e) => setLocationQuery(e.target.value)}
-                        placeholder="Start typing your location..."
+                        onChange={(e) => {
+                          setLocationQuery(e.target.value);
+                          setForm({ ...form, location: e.target.value });
+                        }}
+                        placeholder="Enter or search your location..."
                       />
                       {isFetching && (
                         <p className="text-sm text-muted-foreground mt-1">Fetching...</p>
                       )}
 
-                      {suggestions.length > 0 && (
+                      {!locationSelected && suggestions.length > 0 && (
                         <div className="absolute bg-white shadow rounded mt-1 border border-gray-200 w-full max-h-48 overflow-y-auto z-20">
                           {suggestions.map((s) => (
                             <div
@@ -440,6 +450,7 @@ const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
                               onClick={() => {
                                 setForm({ ...form, location: s.formatted });
                                 setLocationQuery(s.formatted);
+                                setLocationSelected(true);
                                 setSuggestions([]);
                               }}
                             >

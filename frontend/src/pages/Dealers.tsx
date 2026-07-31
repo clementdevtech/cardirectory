@@ -151,34 +151,34 @@ const Dealers: React.FC = () => {
                     <img
                       src={d.company_logo}
                       alt={`${d.full_name} logo`}
-                      className="w-full h-40 object-contain bg-gray-50 p-3 border-b"
+                      className="w-full h-28 sm:h-40 object-contain bg-gray-50 p-2 sm:p-3 border-b"
                     />
                   ) : (
-                    <div className="w-full h-40 flex items-center justify-center bg-gray-100 text-gray-500 border-b">
+                    <div className="w-full h-28 sm:h-40 flex items-center justify-center bg-gray-100 text-gray-500 text-xs sm:text-sm border-b">
                       No Logo
                     </div>
                   )}
 
                   {/* Dealer Info */}
-                  <div className="p-4">
-                    <h3 className="font-semibold text-lg flex items-center gap-2">
+                  <div className="p-2 sm:p-4">
+                    <h3 className="font-semibold text-sm sm:text-lg flex items-center gap-1 sm:gap-2 truncate">
                       {d.full_name}
                       {d.status === "verified" && (
-                        <CheckCircle className="text-green-500 w-5 h-5" />
+                        <CheckCircle className="text-green-500 w-4 h-4 sm:w-5 sm:h-5 shrink-0" />
                       )}
                     </h3>
                     {d.company_name && (
-                      <p className="text-sm text-gray-600">{d.company_name}</p>
+                      <p className="text-xs sm:text-sm text-gray-600 truncate">{d.company_name}</p>
                     )}
-                    <p className="text-sm text-gray-600 flex items-center mt-1">
-                      <MapPin className="w-4 h-4 mr-1" /> {d.country || "Unknown"}
+                    <p className="text-xs sm:text-sm text-gray-600 flex items-center mt-1 truncate">
+                      <MapPin className="w-3 h-3 sm:w-4 sm:h-4 mr-1 shrink-0" /> {d.country || "Unknown"}
                     </p>
-                    <p className="text-xs text-gray-500 mt-1">
+                    <p className="text-[10px] sm:text-xs text-gray-500 mt-1 truncate">
                       Dealer since {new Date(d.created_at).toLocaleDateString()}
                     </p>
 
                     {/* 📞 Contact Buttons */}
-                    <div className="mt-4 flex flex-wrap gap-2">
+                    <div className="mt-2 sm:mt-4 flex flex-wrap gap-1 sm:gap-2">
                       {d.phone && (
                         <>
                           <a
@@ -186,28 +186,28 @@ const Dealers: React.FC = () => {
                             target="_blank"
                             rel="noreferrer"
                             onClick={(e) => e.stopPropagation()}
-                            className="flex items-center gap-1 px-3 py-2 border rounded hover:bg-green-100"
+                            className="flex items-center gap-1 px-2 py-1 sm:px-3 sm:py-2 text-[11px] sm:text-sm border rounded hover:bg-green-100"
                           >
                             <img
                               src="https://upload.wikimedia.org/wikipedia/commons/6/6b/WhatsApp.svg"
                               alt="WhatsApp"
-                              className="w-4 h-4"
+                              className="w-3 h-3 sm:w-4 sm:h-4"
                             />
                             WhatsApp
                           </a>
                           <a
                             href={`tel:${d.phone}`}
                             onClick={(e) => e.stopPropagation()}
-                            className="flex items-center gap-1 px-3 py-2 border rounded hover:bg-blue-100"
+                            className="flex items-center gap-1 px-2 py-1 sm:px-3 sm:py-2 text-[11px] sm:text-sm border rounded hover:bg-blue-100"
                           >
-                            <Phone className="w-4 h-4" /> Call
+                            <Phone className="w-3 h-3 sm:w-4 sm:h-4" /> Call
                           </a>
                         </>
                       )}
                       <a
                         href={`mailto:${d.email}`}
                         onClick={(e) => e.stopPropagation()}
-                        className="flex items-center gap-1 px-3 py-2 border rounded hover:bg-gray-100"
+                        className="flex items-center gap-1 px-2 py-1 sm:px-3 sm:py-2 text-[11px] sm:text-sm border rounded hover:bg-gray-100"
                       >
                         <Mail className="w-4 h-4" /> Email
                       </a>

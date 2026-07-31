@@ -63,6 +63,9 @@ export const useCarUploads = () => {
 
     let videoUrl = "";
     if (videoFile) {
+      if (videoFile.size > 5 * 1024 * 1024) {
+        throw new Error("Video must be 5 MB or smaller.");
+      }
       videoUrl = await uploadWithProgress(videoFile, "video", (progress) =>
         setVideoProgress({ fileName: videoFile.name, progress })
       );

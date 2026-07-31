@@ -91,7 +91,19 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       if (!res.ok) throw new Error("Failed to fetch user info");
 
       const data: { user: AuthUser } = await res.json();
-      setUser(normalizeAuthUser(data?.user));
+      const nextUser = normalizeAuthUser(data?.user);
+      setUser((currentUser) => {
+        if (
+          currentUser?.id === nextUser?.id &&
+          currentUser?.role === nextUser?.role &&
+          currentUser?.full_name === nextUser?.full_name &&
+          currentUser?.is_verified === nextUser?.is_verified
+        ) {
+          return currentUser;
+        }
+
+        return nextUser;
+      });
     } catch (err) {
       console.error("❌ Failed to fetch user:", err);
       setUser(null);

@@ -55,6 +55,7 @@ async function setDealerVerified(id) {
   const sql = `
     UPDATE dealers
     SET verified = true,
+        status = 'verified',
         verified_at = now()
     WHERE id = $1
     RETURNING id

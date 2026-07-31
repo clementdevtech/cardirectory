@@ -18,7 +18,7 @@ const carDraftSchema = z.object({
   mileage: z.number().int().min(0),
   price: z.number().min(0),
 
-  condition: z.enum(["new", "excellent", "good", "fair", "poor"]),
+  condition: z.enum(["new", "used", "imported", "good", "excellent", "fair", "poor"]),
 
   transmission: z.string().nullable().optional(),
 

@@ -58,6 +58,13 @@ async function ensureSalesCommissionSchema() {
       ALTER TABLE email_campaigns
       ALTER COLUMN next_run_at DROP NOT NULL
     `);
+
+    await query(`
+      ALTER TABLE cars DROP CONSTRAINT IF EXISTS cars_status_check;
+      ALTER TABLE cars
+      ADD CONSTRAINT cars_status_check
+      CHECK (status IN ('pending', 'active', 'removed', 'sold'))
+    `);
   } catch (error) {
     console.error("❌ Failed to ensure sales commission schema:", error.message);
   }

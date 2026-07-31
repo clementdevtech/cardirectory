@@ -33,10 +33,10 @@ const sendVerificationLink = async (email, expiresIn = "1d") => {
       token
     )}&email=${encodeURIComponent(email)}`;
 
-    // Non-blocking email sending
-    sendVerificationEmail(email, verifyLink).catch((err) =>
-      console.error("❌ Verification email failed:", err)
-    );
+    const emailResult = await sendVerificationEmail(email, verifyLink);
+    if (emailResult?.error) {
+      throw new Error(emailResult.error);
+    }
 
     return token;
   } catch (err) {
@@ -112,8 +112,17 @@ const loginUser = async (req, res) => {
     if (!match) return res.status(401).json({ success: false, error: "Invalid credentials." });
 
     if (!user.is_verified) {
-      const token = await sendVerificationLink(email);
-      await query(`UPDATE users SET verification_token = $1 WHERE email = $2`, [token, email]);
+      try {
+        const token = await sendVerificationLink(email);
+        await query(`UPDATE users SET verification_token = $1 WHERE email = $2`, [token, email]);
+      } catch (err) {
+        console.error("❌ Verification email could not be sent during login:", err);
+        return res.status(503).json({
+          success: false,
+          error:
+            "Your email is not verified, but we could not send a new verification email. Please try again later.",
+        });
+      }
 
       return res.status(403).json({
         success: false,
@@ -397,17 +406,24 @@ const resetPassword = async (req, res) => {
     if (!token || !newPassword)
       return res.status(400).json({ error: "Missing token or password" });
 
-    const decoded = jwt.verify(token, JWT_SECRET);
+    const reset = await query(
+      `SELECT email FROM password_resets
+       WHERE token = $1 AND expires_at > now()
+       LIMIT 1`,
+      [token]
+    );
 
-    if (!decoded || !decoded.email)
-      return res.status(400).json({ error: "Invalid token" });
+    if (reset.rows.length === 0)
+      return res.status(400).json({ error: "Invalid or expired token" });
 
     const hashed = await bcrypt.hash(newPassword, 10);
 
     await query("UPDATE users SET password = $1 WHERE email = $2", [
       hashed,
-      decoded.email,
+      reset.rows[0].email,
     ]);
+
+    await query("DELETE FROM password_resets WHERE token = $1", [token]);
 
     return res.json({ success: true, message: "Password reset successful" });
   } catch (err) {

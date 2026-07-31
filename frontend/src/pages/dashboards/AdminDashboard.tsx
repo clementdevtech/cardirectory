@@ -108,6 +108,7 @@ const AdminDashboard: React.FC = () => {
   const [users, setUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [savingUser, setSavingUser] = useState<string | null>(null);
+  const [pendingUserRoles, setPendingUserRoles] = useState<Record<string, string>>({});
 
   const [stats, setStats] = useState({
     totalListings: 0,
@@ -714,13 +715,14 @@ const AdminDashboard: React.FC = () => {
     <div className={`min-h-screen ${shellClass}`}>
       <main className={`pt-20 pb-16 ${shellClass}`}>
         <div className="container mx-auto px-4 lg:px-6">
-          <div className={`mb-6 rounded-2xl border p-4 shadow-sm ${panelClass}`}>
+          <div className={`mb-6 overflow-hidden rounded-2xl border shadow-lg shadow-slate-200/50 ${panelClass}`}>
+            <div className="bg-gradient-to-r from-slate-950 via-slate-800 to-emerald-900 px-4 py-5 text-white lg:px-6">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
               <div>
-                <div className={`flex items-center gap-2 text-sm font-medium ${mutedTextClass}`}>
-                  <ShieldCheck className="h-4 w-4 text-emerald-500" /> Admin control center
+                <div className="flex items-center gap-2 text-sm font-medium text-emerald-300">
+                  <ShieldCheck className="h-4 w-4" /> Admin control center
                 </div>
-                <h1 className={`mt-1 text-2xl font-semibold ${isDarkMode ? "text-slate-100" : "text-slate-900"}`}>Your operations overview</h1>
+                <h1 className="mt-1 text-2xl font-semibold">Your operations overview</h1>
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <div className={`flex items-center gap-2 rounded-full border px-3 py-2 text-sm ${pillClass}`}>
@@ -741,8 +743,9 @@ const AdminDashboard: React.FC = () => {
                 </button>
               </div>
             </div>
+            </div>
 
-            <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex flex-col gap-3 bg-white/95 p-4 lg:flex-row lg:items-center lg:justify-between dark:bg-slate-900/95">
               <div className="relative w-full lg:max-w-sm">
                 <Search className={`pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 ${mutedTextClass}`} />
                 <Input
@@ -759,7 +762,7 @@ const AdminDashboard: React.FC = () => {
               )}
             </div>
 
-            <div className="mt-4 flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-2 border-t border-slate-200/70 bg-white/95 p-4 dark:border-slate-800 dark:bg-slate-900/95">
               {navigationItems.map((item) => {
                 const Icon = item.icon;
                 return (
@@ -881,19 +884,19 @@ const AdminDashboard: React.FC = () => {
                   </div>
 
                   <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-                    <Card className="p-4">
+                    <Card className="border-l-4 border-l-emerald-500 p-4 shadow-sm">
                       <p className="text-sm text-slate-500">Total listings</p>
                       <p className="mt-2 text-2xl font-semibold">{stats.totalListings}</p>
                     </Card>
-                    <Card className="p-4">
+                    <Card className="border-l-4 border-l-amber-500 p-4 shadow-sm">
                       <p className="text-sm text-slate-500">Pending</p>
                       <p className="mt-2 text-2xl font-semibold">{stats.pendingApproval}</p>
                     </Card>
-                    <Card className="p-4">
+                    <Card className="border-l-4 border-l-sky-500 p-4 shadow-sm">
                       <p className="text-sm text-slate-500">Dealers</p>
                       <p className="mt-2 text-2xl font-semibold">{stats.totalDealers}</p>
                     </Card>
-                    <Card className="p-4">
+                    <Card className="border-l-4 border-l-[#b44b3e] p-4 shadow-sm">
                       <p className="text-sm text-slate-500">Revenue</p>
                       <p className="mt-2 text-2xl font-semibold">KES {Number(stats.totalRevenue).toLocaleString()}</p>
                     </Card>
@@ -1351,9 +1354,9 @@ const AdminDashboard: React.FC = () => {
                               </div>
                               <div className="flex flex-col gap-2 md:flex-row md:items-center">
                                 <select
-                                  defaultValue={userItem.role || "user"}
+                                  value={pendingUserRoles[userItem.id] ?? userItem.role ?? "user"}
                                   className="rounded border px-3 py-2"
-                                  onChange={(e) => handleUpdateUser(userItem.id, e.target.value, Number(userItem.commission_rate || 15))}
+                                  onChange={(e) => setPendingUserRoles((roles) => ({ ...roles, [userItem.id]: e.target.value }))}
                                 >
                                   <option value="user">User</option>
                                   <option value="dealer">Dealer</option>
@@ -1366,7 +1369,7 @@ const AdminDashboard: React.FC = () => {
                                   className="w-28"
                                   onBlur={(e) => handleUpdateUser(userItem.id, userItem.role || "user", Number(e.target.value || 15))}
                                 />
-                                <Button size="sm" disabled={savingUser === userItem.id} onClick={() => handleUpdateUser(userItem.id, userItem.role || "user", Number(userItem.commission_rate || 15))}>
+                                <Button size="sm" disabled={savingUser === userItem.id} onClick={() => handleUpdateUser(userItem.id, pendingUserRoles[userItem.id] ?? userItem.role ?? "user", Number(userItem.commission_rate || 15))}>
                                   {savingUser === userItem.id ? "Saving..." : "Save"}
                                 </Button>
                                 <Button size="sm" variant="secondary" onClick={() => handleSelectEmailUser(userItem.email)}>

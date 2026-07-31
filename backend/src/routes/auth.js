@@ -4,9 +4,9 @@ const {
   loginUser,
   logoutUser,
   forgotPassword,
+  resetPassword,
   verifyEmailStatus,
   getMe,
-  refreshAuthSession,
   refreshAuthSession,
   resendVerification,
   googleLogin,
@@ -20,6 +20,7 @@ router.post("/register", registerUser);
 router.post("/login", loginUser);
 router.post("/logout", logoutUser);
 router.post("/forgot-password", forgotPassword);
+router.post("/reset-password", resetPassword);
 router.get("/verify-email", verifyEmailStatus);
 router.post("/resend-verification", resendVerification);
 router.get("/me", getMe);

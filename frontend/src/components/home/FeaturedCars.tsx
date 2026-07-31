@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Link } from "react-router-dom";
+import CarCardMedia from "@/components/CarCardMedia";
 
 // ✅ Matches your actual cars table
 interface Car {
@@ -93,14 +94,11 @@ const FeaturedCars: React.FC = () => {
             >
               {/* 🖼️ Main Image */}
               <div className="relative overflow-hidden">
-                <img
-                  src={
-                    car.image ??
-                    car.gallery?.[0] ??
-                    "/placeholder.jpg"
-                  }
+                <CarCardMedia
+                  images={car.image ? [car.image, ...(car.gallery ?? [])] : car.gallery ?? []}
+                  videoUrl={car.video_url}
                   alt={`${car.make} ${car.model}`}
-                  className="w-full h-36 sm:h-44 lg:h-48 object-cover group-hover:scale-110 transition-transform duration-300"
+                  className="h-36 sm:h-44 lg:h-48 group-hover:scale-105 transition-transform duration-500"
                 />
               </div>
 
@@ -134,14 +132,6 @@ const FeaturedCars: React.FC = () => {
                 )}
 
                 {/* 🎥 Optional video preview */}
-                {car.video_url && (
-                  <video
-                    src={car.video_url}
-                    controls
-                    className="w-full rounded-md mt-3"
-                    style={{ maxHeight: "160px" }}
-                  />
-                )}
 
                 {/* 📞 Action Buttons */}
                 <div className="flex gap-2 pt-2 sm:pt-3">

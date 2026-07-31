@@ -2,7 +2,14 @@ const { query } = require("../db");
 
 const requireCarOwnership = async (req, res, next) => {
   try {
-    const dealerId = req.user?.dealer_id;
+    const dealerResult = await query(
+      `SELECT id FROM dealers WHERE user_id = $1 LIMIT 1`,
+      [req.user?.id]
+    );
+    const dealerId = dealerResult.rows[0]?.id;
+    if (!dealerId) {
+      return res.status(404).json({ message: "Dealer profile not found" });
+    }
     const carId = req.params.id || req.body.id;
 
     if (!carId) {

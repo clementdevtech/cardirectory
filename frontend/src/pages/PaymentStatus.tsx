@@ -29,7 +29,7 @@ export default function PaymentStatus() {
           setStatus("success");
 
           // ✅ Redirect after a short success display
-          setTimeout(() => navigate("/dashboard"), 3000);
+          setTimeout(() => navigate("/dealer"), 3000);
         } else {
           setStatus("failed");
         }

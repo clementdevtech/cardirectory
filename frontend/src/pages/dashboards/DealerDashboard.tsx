@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
@@ -29,6 +29,7 @@ import {
   RefreshCw,
   Bell,
   Lock,
+  ArrowLeft,
 } from "lucide-react";
 
 import {
@@ -36,6 +37,8 @@ import {
   differenceInHours,
   differenceInMinutes,
 } from "date-fns";
+
+const API_BASE_URL = import.meta.env.VITE_BACKEND_URL as string;
 
 /* ============================
    Types
@@ -53,6 +56,7 @@ interface Dealer {
   tax_id: string | null;
   company_logo: string | null;
   status: "pending" | "verified" | "rejected" | "suspended";
+  verified?: boolean;
   validation_message?: string | null;
 }
 
@@ -74,6 +78,15 @@ interface Listing {
   model: string;
   year: number;
   status: string;
+  price?: number;
+  mileage?: number;
+  condition?: string;
+  transmission?: string | null;
+  location?: string;
+  description?: string;
+  phone?: string | null;
+  video_url?: string | null;
+  featured?: boolean;
   gallery?: string[];
 }
 
@@ -82,10 +95,12 @@ interface Listing {
 ============================ */
 const DealerDashboard: React.FC = () => {
   const { user, isLoading } = useAuth();
+  const location = useLocation();
   const navigate = useNavigate();
   const { toast } = useToast();
 
   const [dealer, setDealer] = useState<Dealer | null>(null);
+  const [dealerLookupComplete, setDealerLookupComplete] = useState(false);
   const [dealerForm, setDealerForm] = useState<Partial<Dealer>>({});
   
   const [billing, setBilling] = useState<UserBilling | null>(null);
@@ -98,7 +113,6 @@ const DealerDashboard: React.FC = () => {
     "default" | "warning" | "destructive"
   >("default");
 
-  const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isCarDialogOpen, setIsCarDialogOpen] = useState(false);
   const [carStep, setCarStep] = useState(1);
   const [carForm, setCarForm] = useState<any>({
@@ -132,16 +146,19 @@ const DealerDashboard: React.FC = () => {
   const fetchData = useCallback(async () => {
     if (!user) return;
 
-    const { data: dealer } = await supabase
-      .from("dealers")
-      .select("*")
-      .eq("user_id", user.id)
-      .single();
+    setDealerLookupComplete(false);
 
-    if (!dealer) return;
+    try {
+      const { data: dealer } = await supabase
+        .from("dealers")
+        .select("*")
+        .eq("user_id", user.id)
+        .maybeSingle();
 
-    setDealer(dealer);
-    setDealerForm(dealer);
+      if (!dealer) return;
+
+      setDealer(dealer);
+      setDealerForm(dealer);
 
     // 🔹 User billing (trial info)
 const { data: billing } = await supabase
@@ -163,13 +180,18 @@ const { data: dealerSub } = await supabase
 setDealerSub(dealerSub);
 
 
-    const { data: cars } = await supabase
-      .from("cars")
-      .select("id, make, model, year, status, gallery")
-      .eq("dealer_id", dealer.id)
-      .order("created_at", { ascending: false });
-
-    setListings(cars ?? []);
+      const carsResponse = await fetch(`${API_BASE_URL}/dealer/cars`, {
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem("auth_token") || ""}`,
+        },
+        credentials: "include",
+      });
+      const cars = await carsResponse.json().catch(() => []);
+      if (!carsResponse.ok) throw new Error(cars.message || "Failed to load vehicles");
+      setListings(Array.isArray(cars) ? cars : []);
+    } finally {
+      setDealerLookupComplete(true);
+    }
   }, [user]);
 
   useEffect(() => {
@@ -258,22 +280,29 @@ useEffect(() => {
   const saveDealerProfile = async () => {
     if (!dealer) return;
 
-    await supabase
-      .from("dealers")
-      .update({
-        ...dealerForm,
-        status: "pending",
-        validation_message: null,
-      })
-      .eq("id", dealer.id);
+    const response = await fetch(`${API_BASE_URL}/dealer/profile`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${localStorage.getItem("auth_token") || ""}`,
+      },
+      credentials: "include",
+      body: JSON.stringify(dealerForm),
+    });
+
+    if (!response.ok) {
+      const result = await response.json().catch(() => ({}));
+      toast({ title: "Error", description: result.message || "Profile update failed" });
+      return;
+    }
 
     toast({
       title: "Profile submitted for verification",
       description: "Admin will review your details",
     });
 
-    setIsProfileOpen(false);
     fetchData();
+    navigate("/dealer");
   };
 
   /* ============================
@@ -294,16 +323,25 @@ useEffect(() => {
 
     setSavingCar(true);
 
-    const { error } = await supabase.from("cars").insert({
-      ...carForm,
-      dealer_id: dealer.id,
-      status: "pending",
+    const response = await fetch(`${API_BASE_URL}/dealer/cars/draft`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${localStorage.getItem("auth_token") || ""}`,
+      },
+      credentials: "include",
+      body: JSON.stringify({
+        ...carForm,
+        gallery: carForm.gallery || [],
+        video_url: carForm.video_url || null,
+      }),
     });
+    const result = await response.json().catch(() => ({}));
 
     setSavingCar(false);
 
-    if (error) {
-      toast({ title: "Error", description: error.message });
+    if (!response.ok) {
+      toast({ title: "Error", description: result.message || result.error || "Vehicle submission failed" });
       return;
     }
 
@@ -316,11 +354,104 @@ useEffect(() => {
     fetchData();
   };
 
-  if (isLoading || !dealer) return <div className="p-10">Loading…</div>;
+  const editListing = (listing: Listing) => {
+    setCarForm({ ...listing, gallery: listing.gallery || [], video_url: listing.video_url || null });
+    setCarStep(1);
+    setIsCarDialogOpen(true);
+  };
+
+  const markListingSold = async (listing: Listing) => {
+    if (!window.confirm(`Mark ${listing.make} ${listing.model} as sold?`)) return;
+
+    const response = await fetch(`${API_BASE_URL}/dealer/cars/${listing.id}/sold`, {
+      method: "PATCH",
+      headers: { Authorization: `Bearer ${localStorage.getItem("auth_token") || ""}` },
+      credentials: "include",
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      toast({ title: "Error", description: result.message || "Could not update vehicle" });
+      return;
+    }
+    toast({ title: "Vehicle marked as sold" });
+    fetchData();
+  };
+
+  if (isLoading || !dealerLookupComplete) return <div className="p-10">Loading…</div>;
+
+  if (!dealer) {
+    return (
+      <div className="container mx-auto p-6">
+        <h1 className="text-2xl font-bold">Dealer profile not ready</h1>
+        <p className="mt-2 text-muted-foreground">
+          Your dealer role is active, but your dealer profile has not been created yet. Please contact an administrator.
+        </p>
+      </div>
+    );
+  }
 
   /* ============================
      Render
   ============================ */
+    const isDealerVerified = dealer.verified === true || dealer.status?.toLowerCase() === "verified";
+
+    if (location.pathname === "/dealer/profile") {
+      return (
+        <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-red-50/40">
+          <main className="mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:px-8">
+            <button
+              type="button"
+              onClick={() => navigate("/dealer")}
+              className="mb-6 flex items-center gap-2 text-sm font-semibold text-gray-600 transition hover:text-[#8B0000]"
+            >
+              <ArrowLeft className="h-4 w-4" /> Back to dashboard
+            </button>
+
+            <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-xl shadow-red-100/40">
+              <div className="bg-gradient-to-r from-[#8B0000] to-[#b44b3e] px-6 py-8 text-white sm:px-10">
+                <p className="text-sm font-medium uppercase tracking-[0.2em] text-red-100">Dealer account</p>
+                <h1 className="mt-2 text-3xl font-bold">Your dealer profile</h1>
+                <p className="mt-2 max-w-2xl text-sm text-red-100">Keep your business details accurate so buyers can trust and contact your dealership.</p>
+              </div>
+
+              <div className="p-6 sm:p-10">
+                <div className="mb-8 flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 pb-6">
+                  <div>
+                    <p className="text-sm text-gray-500">Verification status</p>
+                    <p className="mt-1 text-lg font-semibold capitalize text-gray-900">{dealer.status}</p>
+                  </div>
+                  <Badge className="bg-red-50 px-3 py-1 text-[#8B0000] hover:bg-red-50">{dealer.status}</Badge>
+                </div>
+
+                <div className="grid gap-5 md:grid-cols-2">
+                  {["full_name", "company_name", "phone", "country", "city", "national_id", "tax_id", "company_logo"].map((field) => (
+                    <div key={field} className={field === "company_logo" ? "md:col-span-2" : ""}>
+                      <Label className="capitalize text-gray-700">{field.replace("_", " ")}</Label>
+                      <Input
+                        value={(dealerForm as any)[field] ?? ""}
+                        onChange={(event) => setDealerForm({ ...dealerForm, [field]: event.target.value })}
+                        className="mt-2 h-11 border-gray-200 bg-gray-50 focus:bg-white"
+                      />
+                    </div>
+                  ))}
+                  <div>
+                    <Label className="text-gray-700">Email</Label>
+                    <Input value={dealer.email} disabled className="mt-2 h-11 bg-gray-100" />
+                  </div>
+                </div>
+
+                <div className="mt-8 flex justify-end">
+                  <Button onClick={saveDealerProfile} className="bg-[#b44b3e] px-6 hover:bg-[#8B0000]">
+                    <RefreshCw className="mr-2 h-4 w-4" /> Save & Resubmit
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </main>
+        </div>
+      );
+    }
+
   return (
     <div className="container mx-auto p-6">
       {/* Header */}
@@ -328,7 +459,7 @@ useEffect(() => {
         <h1 className="text-3xl font-bold">Dealer Dashboard</h1>
 
         <div className="flex gap-2">
-          {dealer.status === "verified" && !listingLimitReached ? (
+          {isDealerVerified && !listingLimitReached ? (
             <Dialog open={isCarDialogOpen} onOpenChange={setIsCarDialogOpen}>
               <DialogTrigger asChild>
                 <Button>
@@ -339,7 +470,7 @@ useEffect(() => {
 
               <DialogContent className="max-w-3xl">
                 <DialogHeader>
-                  <DialogTitle>New Vehicle Listing</DialogTitle>
+                  <DialogTitle>{carForm.id ? "Edit Vehicle Listing" : "New Vehicle Listing"}</DialogTitle>
                 </DialogHeader>
 
                 <DealerCarForm
@@ -369,48 +500,9 @@ useEffect(() => {
             </Button>
           )}
 
-          <Dialog open={isProfileOpen} onOpenChange={setIsProfileOpen}>
-            <DialogTrigger asChild>
-              <Button variant="outline">
-                <User className="mr-2 h-4 w-4" /> Profile
-              </Button>
-            </DialogTrigger>
-
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Edit Dealer Profile</DialogTitle>
-              </DialogHeader>
-
-              {[
-                "full_name",
-                "company_name",
-                "phone",
-                "country",
-                "city",
-                "national_id",
-                "tax_id",
-                "company_logo",
-              ].map((f) => (
-                <div key={f} className="mb-3">
-                  <Label>{f.replace("_", " ")}</Label>
-                  <Input
-                    value={(dealerForm as any)[f] ?? ""}
-                    onChange={(e) =>
-                      setDealerForm({ ...dealerForm, [f]: e.target.value })
-                    }
-                  />
-                </div>
-              ))}
-
-              <Label>Email</Label>
-              <Input value={dealer.email} disabled />
-
-              <Button onClick={saveDealerProfile} className="w-full mt-4">
-                <RefreshCw className="mr-2 h-4 w-4" />
-                Save & Resubmit
-              </Button>
-            </DialogContent>
-          </Dialog>
+          <Button variant="outline" onClick={() => navigate("/dealer/profile")}>
+            <User className="mr-2 h-4 w-4" /> Profile
+          </Button>
         </div>
       </div>
 
@@ -439,7 +531,7 @@ useEffect(() => {
       <Tabs defaultValue="listings">
         <TabsList>
           <TabsTrigger value="listings">Listings</TabsTrigger>
-          <TabsTrigger value="analytics" disabled={dealer.status !== "verified"}>
+          <TabsTrigger value="analytics" disabled={!isDealerVerified}>
             Analytics
           </TabsTrigger>
         </TabsList>
@@ -454,9 +546,16 @@ useEffect(() => {
                   </h3>
                   <Badge>{l.status}</Badge>
                 </div>
-                <Button variant="outline">
+                <div className="flex gap-2">
+                <Button variant="outline" onClick={() => editListing(l)}>
                   <Edit className="mr-2" /> Edit
                 </Button>
+                {l.status !== "sold" && (
+                  <Button variant="outline" onClick={() => markListingSold(l)}>
+                    Mark sold
+                  </Button>
+                )}
+                </div>
               </Card>
             ))}
           </div>

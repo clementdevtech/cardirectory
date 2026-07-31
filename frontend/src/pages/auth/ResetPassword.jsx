@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { toast } from "react-toastify";
 import axios from "axios";
+import logo from "@/assets/logo.png";
 
 const API_BASE_URL = import.meta.env.VITE_BACKEND_URL;
 
@@ -90,92 +91,90 @@ const ResetPassword = () => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-gray-100 p-4">
-      <div className="bg-white shadow-2xl rounded-2xl w-full max-w-md p-8 transition-all duration-300 hover:shadow-xl">
-        <div className="flex flex-col items-center mb-4">
-          <div className="bg-blue-100 p-3 rounded-full mb-2">
-            <Lock className="text-blue-600" size={28} />
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100 p-4">
+      <div className="bg-white shadow-2xl rounded-2xl w-full max-w-md p-8 space-y-6 transition-all duration-300 hover:shadow-red-100">
+        <div className="flex flex-col items-center text-center">
+          <div className="flex items-center justify-center space-x-2 mb-3">
+            <img
+              src={logo}
+              alt="CarDirectory Logo"
+              className="h-10 w-10 object-contain rounded-md"
+            />
+            <span className="text-2xl font-bold text-gray-800">
+              Car<span className="text-[#8B0000]">Directory</span>
+            </span>
           </div>
-          <h2 className="text-2xl font-extrabold text-gray-800">
+          <div className="flex items-center gap-2 text-[#b44b3e] mb-2">
+            <Lock size={20} aria-hidden="true" />
+            <h2 className="text-2xl font-bold text-gray-800">
             Reset Your Password
-          </h2>
+            </h2>
+          </div>
           <p className="text-center text-gray-500 text-sm mt-2">
             Enter your new password below to secure your account.
           </p>
         </div>
 
-        <form onSubmit={handlePasswordReset} className="space-y-6">
-          <div className="relative">
+        <form onSubmit={handlePasswordReset} className="space-y-5 mt-4">
+          <div>
             <label className="block text-gray-600 font-medium mb-1">
               New Password
             </label>
-            <input
-              type={showPasswords ? "text" : "password"}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Enter new password"
-              className={`w-full p-3 border rounded-xl outline-none focus:ring-2 pr-12 transition ${
-                passwordError
-                  ? "border-red-500 ring-red-200"
-                  : passwordValid
-                  ? "border-green-500 ring-green-200"
-                  : "focus:ring-blue-200"
-              }`}
-            />
-            {password &&
-              (passwordValid ? (
-                <CheckCircle2
-                  className="absolute right-12 top-10 text-green-500 transition-opacity"
-                  size={18}
-                />
-              ) : (
-                <XCircle
-                  className="absolute right-12 top-10 text-red-500 transition-opacity"
-                  size={18}
-                />
-              ))}
-            <button
-              type="button"
-              onClick={() => setShowPasswords(!showPasswords)}
-              className="absolute right-3 top-9 text-gray-500 hover:text-gray-700 transition"
-              aria-label="Toggle password visibility"
-            >
-              {showPasswords ? <EyeOff size={20} /> : <Eye size={20} />}
-            </button>
+            <div className="relative">
+              <input
+                type={showPasswords ? "text" : "password"}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Enter new password"
+                className={`w-full p-3 border rounded-xl outline-none focus:ring-2 pr-20 transition ${
+                  passwordError
+                    ? "border-red-500 ring-red-200"
+                    : passwordValid
+                    ? "border-green-500 ring-green-200"
+                    : "focus:ring-[#b44b3e]"
+                }`}
+              />
+              {password &&
+                (passwordValid ? (
+                  <CheckCircle2 className="absolute right-12 top-3 text-green-500" size={18} />
+                ) : (
+                  <XCircle className="absolute right-12 top-3 text-red-500" size={18} />
+                ))}
+              <button
+                type="button"
+                onClick={() => setShowPasswords(!showPasswords)}
+                className="absolute right-3 top-3 text-gray-500 hover:text-gray-700"
+                aria-label="Toggle password visibility"
+              >
+                {showPasswords ? <EyeOff size={20} /> : <Eye size={20} />}
+              </button>
+            </div>
             {passwordError && (
               <p className="text-red-500 text-sm mt-1">{passwordError}</p>
             )}
           </div>
 
-          <div className="relative">
+          <div>
             <label className="block text-gray-600 font-medium mb-1">
               Confirm Password
             </label>
-            <input
-              type={showPasswords ? "text" : "password"}
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              placeholder="Confirm new password"
-              className="w-full p-3 border rounded-xl outline-none focus:ring-2 focus:ring-blue-200 pr-12"
-            />
-          </div>
-
-          <div className="flex items-center justify-end text-sm text-gray-600">
-            <button
-              type="button"
-              onClick={() => setShowPasswords(!showPasswords)}
-              className="flex items-center gap-2 text-blue-600 hover:underline transition"
-            >
-              {showPasswords ? (
-                <>
-                  <EyeOff size={16} /> Hide Passwords
-                </>
-              ) : (
-                <>
-                  <Eye size={16} /> Show Passwords
-                </>
-              )}
-            </button>
+            <div className="relative">
+              <input
+                type={showPasswords ? "text" : "password"}
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                placeholder="Confirm new password"
+                className="w-full p-3 border rounded-xl outline-none focus:ring-2 focus:ring-[#b44b3e] pr-12"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPasswords(!showPasswords)}
+                className="absolute right-3 top-3 text-gray-500 hover:text-gray-700"
+                aria-label="Toggle password visibility"
+              >
+                {showPasswords ? <EyeOff size={20} /> : <Eye size={20} />}
+              </button>
+            </div>
           </div>
 
           <button
@@ -183,8 +182,8 @@ const ResetPassword = () => {
             disabled={isLoading}
             className={`w-full py-3 rounded-xl font-semibold text-white transition ${
               isLoading
-                ? "bg-blue-400 cursor-not-allowed"
-                : "bg-blue-600 hover:bg-blue-700 shadow-md hover:shadow-blue-200"
+                ? "bg-[#b44b3e] opacity-70 cursor-not-allowed"
+                : "bg-[#b44b3e] hover:bg-[#8B0000] shadow-md hover:shadow-red-200"
             }`}
           >
             {isLoading ? (

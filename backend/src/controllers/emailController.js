@@ -1,4 +1,5 @@
 const axios = require("axios");
+const { Resend } = require("resend");
 const { query } = require("../db");
 const logger = require("../logger");
 require("dotenv").config();
@@ -17,6 +18,9 @@ const {
   ZOHO_ACCOUNTS_HOST,
   ZOHO_MAIL_HOST,
 } = process.env;
+const RESEND_API_KEY = process.env.RESEND_API_KEY;
+const RESEND_FROM = process.env.RESEND_FROM || ZOHO_FROM;
+const resendClient = RESEND_API_KEY ? new Resend(RESEND_API_KEY) : null;
 
 /* Zoho endpoints */
 const ZOHO_AUTH_URL = `${ZOHO_ACCOUNTS_HOST}/oauth/v2/token`;
@@ -116,6 +120,28 @@ const sendZohoMail = async (to, subject, html) => {
   }
 };
 
+const sendEmail = async (to, subject, html) => {
+  try {
+    return await sendZohoMail(to, subject, html);
+  } catch (zohoError) {
+    if (!resendClient || !RESEND_FROM) throw zohoError;
+
+    try {
+      await resendClient.emails.send({
+        from: RESEND_FROM,
+        to: [to],
+        subject,
+        html,
+      });
+      console.warn("Zoho delivery failed; email sent through Resend.");
+      return true;
+    } catch (resendError) {
+      console.error("Resend fallback failed:", safeJson(resendError));
+      throw zohoError;
+    }
+  }
+};
+
 /* GENERATE EMAIL TEMPLATE */
 const generateEmailTemplate = (title, message, buttonUrl, buttonText) => `
 <!DOCTYPE html>
@@ -175,7 +201,7 @@ const sendPasswordResetEmail = async (email) => {
     const resetLink = `${FRONTEND_URL}/reset-password?token=${token}`;
     const html = generateEmailTemplate("Password Reset Request", "We received a request to reset your password.", resetLink, "Reset Password");
 
-    await sendZohoMail(email, "Password Reset Request", html);
+    await sendEmail(email, "Password Reset Request", html);
     return {};
   } catch (err) {
     return { error: "Failed to send password reset email." };
@@ -192,9 +218,10 @@ const sendVerificationEmail = async (email, verifyLink) => {
       "Verify Email"
     );
 
-    await sendZohoMail(email, "Verify Your Email", html);
+    await sendEmail(email, "Verify Your Email", html);
     return {};
   } catch (err) {
+    console.error("Verification email error:", safeJson(err.response?.data || err));
     return { error: "Failed to send verification email." };
   }
 };
@@ -203,7 +230,7 @@ const sendVerificationEmail = async (email, verifyLink) => {
 const sendMassEmail = async (recipients, subject, message) => {
   const html = generateEmailTemplate(subject, message);
 
-  const results = await Promise.allSettled(recipients.map((email) => sendZohoMail(email, subject, html)));
+  const results = await Promise.allSettled(recipients.map((email) => sendEmail(email, subject, html)));
 
   const failed = results
     .map((r, i) => (r.status === "rejected" ? { email: recipients[i], error: r.reason?.message || "Send failed" } : null))
@@ -315,7 +342,7 @@ const sendTrialActivationEmail = async (email, trialEnd) => {
   try {
     const message = `🎉 Your free trial is now active!<br/>Ends on <b>${trialEnd.toDateString()}</b>.`;
     const html = generateEmailTemplate("Your Trial Is Active", message, `${FRONTEND_URL}/dashboard`, "Go to Dashboard");
-    await sendZohoMail(email, "🎉 Your Trial Is Active!", html);
+    await sendEmail(email, "🎉 Your Trial Is Active!", html);
     return {};
   } catch (err) {
     return { error: "Failed to send trial activation email." };
@@ -327,7 +354,7 @@ const sendTrialReminderEmail = async (email, trialEnd) => {
   try {
     const message = `⏳ Your trial ends on <b>${trialEnd.toDateString()}</b>.<br/>Upgrade to keep your listing active.`;
     const html = generateEmailTemplate("Your Trial Ends Soon", message, `${FRONTEND_URL}/pricing`, "Upgrade Now");
-    await sendZohoMail(email, "⏳ Your Trial Ends Soon", html);
+    await sendEmail(email, "⏳ Your Trial Ends Soon", html);
     return {};
   } catch (err) {
     return { error: "Failed to send trial reminder email." };
@@ -336,6 +363,7 @@ const sendTrialReminderEmail = async (email, trialEnd) => {
 
 module.exports = {
   sendZohoMail,
+  sendEmail,
   sendPasswordResetEmail,
   sendVerificationEmail,
   sendMassEmail,
