@@ -1,11 +1,12 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent } from "@/components/ui/card";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import CarCardMedia from "@/components/CarCardMedia";
+import { Input } from "@/components/ui/input";
 import { X, ChevronLeft, ChevronRight } from "lucide-react";
 
 const formatPrice = (price: number) =>
@@ -30,19 +31,70 @@ interface Car {
   video_url: string | null;
 }
 
+const PAGE_SIZE = 12;
+
 const BrowseCars = () => {
-  const { data: cars, isLoading, error } = useQuery({
-    queryKey: ["cars"],
-    queryFn: async () => {
-      const { data, error } = await supabase
+  const [search, setSearch] = useState("");
+  const loadMoreRef = useRef<HTMLDivElement | null>(null);
+
+  const {
+    data,
+    isLoading,
+    error,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useInfiniteQuery<
+    { cars: Car[]; nextOffset?: number },
+    Error
+  >({
+    queryKey: ["cars", search],
+    queryFn: async ({ pageParam = 0 }: any) => {
+      const pageNumber = typeof pageParam === "number" ? pageParam : 0;
+
+      let query = supabase
         .from("cars")
         .select("*")
         .eq("status", "active")
-        .order("id", { ascending: false });
+        .order("id", { ascending: false })
+        .range(pageNumber, pageNumber + PAGE_SIZE - 1);
+
+      const trimmed = search.trim();
+      if (trimmed) {
+        query = query.or(
+          `make.ilike.%${trimmed}%,model.ilike.%${trimmed}%,location.ilike.%${trimmed}%`
+        );
+      }
+
+      const { data, error } = await query;
       if (error) throw error;
-      return data as Car[];
+      return {
+        cars: (data ?? []) as Car[],
+        nextOffset:
+          data && data.length === PAGE_SIZE ? pageNumber + PAGE_SIZE : undefined,
+      };
     },
+    getNextPageParam: (lastPage) => lastPage.nextOffset,
+    initialPageParam: 0,
   });
+
+  const cars = data?.pages.flatMap((page) => page.cars) ?? [];
+
+  useEffect(() => {
+    if (!loadMoreRef.current || !hasNextPage) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          fetchNextPage();
+        }
+      },
+      { rootMargin: "300px" }
+    );
+
+    observer.observe(loadMoreRef.current);
+    return () => observer.disconnect();
+  }, [fetchNextPage, hasNextPage]);
 
   // 🧩 Lightbox State
   const [lightboxImages, setLightboxImages] = useState<string[]>([]);
@@ -53,7 +105,7 @@ const BrowseCars = () => {
     setLightboxImages(images);
     setCurrentImage(index);
     setIsLightboxOpen(true);
-    document.body.style.overflow = "hidden"; // prevent background scroll
+    document.body.style.overflow = "hidden";
   };
 
   const closeLightbox = () => {
@@ -84,16 +136,24 @@ const BrowseCars = () => {
       <Navbar />
       <main className="flex-1">
         <div className="container mx-auto px-4 py-8">
-          <div className="mb-8 text-center">
-            <h1 className="text-3xl font-bold">Browse Cars</h1>
-            <p className="text-gray-600">
-              Found {cars?.length ?? "0"} vehicles
-            </p>
+          <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h1 className="text-3xl font-bold">Browse Cars</h1>
+              <p className="text-gray-600">
+                Found {cars.length} vehicles
+              </p>
+            </div>
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search cars by make, model, or location"
+              className="max-w-md"
+            />
           </div>
 
           {isLoading ? (
             <div className="text-center text-gray-500">Loading cars...</div>
-          ) : cars?.length ? (
+          ) : cars.length ? (
             <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
               {cars.map((car) => {
                 const images =
@@ -164,6 +224,12 @@ const BrowseCars = () => {
               No cars available yet.
             </div>
           )}
+          {isFetchingNextPage && (
+            <div className="text-center py-6 text-sm text-muted-foreground">
+              Loading more cars...
+            </div>
+          )}
+          <div ref={loadMoreRef} className="h-1" />
         </div>
       </main>
 

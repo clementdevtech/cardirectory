@@ -1,11 +1,19 @@
 import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Menu, X, LogOut, LayoutDashboard } from "lucide-react";
+import { Menu, X, LogOut, LayoutDashboard, Download } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import logo from "@/assets/logo.png";
+
+interface BeforeInstallPromptEvent extends Event {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{
+    outcome: "accepted" | "dismissed";
+    platform: string;
+  }>;
+}
 
 const Navbar = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -15,9 +23,10 @@ const Navbar = () => {
   const panelRef = useRef<HTMLDivElement>(null);
   const [touchStartX, setTouchStartX] = useState(0);
   const [touchEndX, setTouchEndX] = useState(0);
+  const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+  const [isPwaInstalled, setIsPwaInstalled] = useState(false);
 
   const userRole = user?.role;
-  console.log("User Role:", userRole); // Debugging line to check the user role
 
   // ✅ Handle Logout
   const handleLogout = async () => {
@@ -53,6 +62,57 @@ const Navbar = () => {
       }
     };
   }, [touchStartX, touchEndX]);
+
+  useEffect(() => {
+    const handleBeforeInstallPrompt = (event: Event) => {
+      event.preventDefault();
+      setInstallPrompt(event as BeforeInstallPromptEvent);
+    };
+
+    const handleAppInstalled = () => {
+      setIsPwaInstalled(true);
+      setInstallPrompt(null);
+    };
+
+    const updateDisplayMode = () => {
+      const standalone = window.matchMedia("(display-mode: standalone)").matches || (navigator as any).standalone === true;
+      setIsPwaInstalled(standalone);
+      if (standalone) setInstallPrompt(null);
+    };
+
+    window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt as any);
+    window.addEventListener("appinstalled", handleAppInstalled);
+
+    const mediaQuery = window.matchMedia("(display-mode: standalone)");
+    if (mediaQuery.addEventListener) {
+      mediaQuery.addEventListener("change", updateDisplayMode);
+    } else if ((mediaQuery as any).addListener) {
+      (mediaQuery as any).addListener(updateDisplayMode);
+    }
+
+    updateDisplayMode();
+
+    return () => {
+      window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt as any);
+      window.removeEventListener("appinstalled", handleAppInstalled);
+      if (mediaQuery.removeEventListener) {
+        mediaQuery.removeEventListener("change", updateDisplayMode);
+      } else if ((mediaQuery as any).removeListener) {
+        (mediaQuery as any).removeListener(updateDisplayMode);
+      }
+    };
+  }, []);
+
+  const handleInstallClick = async () => {
+    if (!installPrompt) return;
+
+    installPrompt.prompt();
+    const choiceResult = await installPrompt.userChoice;
+
+    if (choiceResult.outcome === "accepted") {
+      setInstallPrompt(null);
+    }
+  };
 
   return (
     <nav
@@ -147,6 +207,22 @@ const Navbar = () => {
         </div>
       </div>
 
+      {installPrompt && !isPwaInstalled && (
+        <div className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-background border-t border-border px-4 py-3 shadow-xl flex items-center justify-between gap-3">
+          <div className="text-sm text-foreground">
+            Install CarDirectory for a faster mobile experience.
+          </div>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={handleInstallClick}
+            className="whitespace-nowrap"
+          >
+            Install
+          </Button>
+        </div>
+      )}
+
       {/* Overlay for mobile */}
       {mobileMenuOpen && (
         <div
@@ -170,6 +246,15 @@ const Navbar = () => {
         </div>
 
         <div className="flex flex-col text-left px-6 py-5 space-y-5">
+          {installPrompt && !isPwaInstalled && (
+            <Button
+              variant="secondary"
+              className="w-full"
+              onClick={handleInstallClick}
+            >
+              <Download className="h-4 w-4" /> Install App
+            </Button>
+          )}
           <Link to="/cars" className="mobile-link" onClick={() => setMobileMenuOpen(false)}>
             Browse Cars
           </Link>

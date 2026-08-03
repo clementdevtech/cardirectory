@@ -1,10 +1,11 @@
-import React from "react";
-import { useQuery } from "@tanstack/react-query";
+import React, { useEffect, useRef, useState } from "react";
+import { useInfiniteQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Link } from "react-router-dom";
 import CarCardMedia from "@/components/CarCardMedia";
+import { Input } from "@/components/ui/input";
 
 // ✅ Matches your actual cars table
 interface Car {
@@ -35,23 +36,71 @@ const formatPrice = (price: number) =>
     maximumFractionDigits: 0,
   }).format(price);
 
+const PAGE_SIZE = 8;
+
 const FeaturedCars: React.FC = () => {
-  // Fetch only active + featured cars
-  const { data: cars, isLoading, error } = useQuery<Car[], Error>({
-    queryKey: ["featured-cars"],
-    queryFn: async (): Promise<Car[]> => {
-      const { data, error } = await supabase
+  const [search, setSearch] = useState("");
+  const loadMoreRef = useRef<HTMLDivElement | null>(null);
+
+  const {
+    data,
+    isLoading,
+    error,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useInfiniteQuery<
+    { cars: Car[]; nextOffset?: number },
+    Error
+  >({
+    queryKey: ["featured-cars", search],
+    queryFn: async ({ pageParam = 0 }: any) => {
+      const pageNumber = typeof pageParam === "number" ? pageParam : 0;
+
+      let query = supabase
         .from("cars")
         .select("*")
         .eq("featured", true)
         .eq("status", "active")
         .order("created_at", { ascending: false })
-        .limit(8);
+        .range(pageNumber, pageNumber + PAGE_SIZE - 1);
 
+      const trimmed = search.trim();
+      if (trimmed) {
+        query = query.or(
+          `make.ilike.%${trimmed}%,model.ilike.%${trimmed}%,location.ilike.%${trimmed}%`
+        );
+      }
+
+      const { data, error } = await query;
       if (error) throw error;
-      return data ?? [];
+      return {
+        cars: data ?? [],
+        nextOffset:
+          data && data.length === PAGE_SIZE ? pageNumber + PAGE_SIZE : undefined,
+      };
     },
+    getNextPageParam: (lastPage) => lastPage.nextOffset,
+    initialPageParam: 0,
   });
+
+  const cars = data?.pages.flatMap((page) => page.cars) ?? [];
+
+  useEffect(() => {
+    if (!loadMoreRef.current || !hasNextPage) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          fetchNextPage();
+        }
+      },
+      { rootMargin: "300px" }
+    );
+
+    observer.observe(loadMoreRef.current);
+    return () => observer.disconnect();
+  }, [fetchNextPage, hasNextPage]);
 
   if (isLoading)
     return (
@@ -69,12 +118,12 @@ const FeaturedCars: React.FC = () => {
       </section>
     );
 
-  if (!cars?.length)
+  if (!cars.length)
     return (
       <section className="py-16 bg-muted/30">
         <div className="container mx-auto px-4 text-center">
           <h2 className="text-2xl font-semibold mb-2">Featured Cars</h2>
-          <p className="text-muted-foreground">No featured cars available right now.</p>
+          <p className="text-muted-foreground">No featured cars match your search.</p>
         </div>
       </section>
     );
@@ -82,9 +131,20 @@ const FeaturedCars: React.FC = () => {
   return (
     <section className="py-16 bg-muted/30">
       <div className="container mx-auto px-4">
-        <h2 className="text-3xl font-bold mb-10 text-center">
-          Featured Cars
-        </h2>
+        <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-3xl font-bold">Featured Cars</h2>
+            <p className="text-sm text-muted-foreground max-w-xl">
+              Search and browse featured vehicles with infinite scrolling.
+            </p>
+          </div>
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search featured cars..."
+            className="max-w-sm"
+          />
+        </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-6">
           {cars.map((car) => (
@@ -165,6 +225,12 @@ const FeaturedCars: React.FC = () => {
             </Card>
           ))}
         </div>
+        {isFetchingNextPage && (
+          <div className="text-center py-6 text-sm text-muted-foreground">
+            Loading more featured cars...
+          </div>
+        )}
+        <div ref={loadMoreRef} className="h-1" />
       </div>
     </section>
   );

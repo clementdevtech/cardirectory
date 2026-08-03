@@ -10,6 +10,8 @@ const {
   getAllDealers,
   addDealer,
   deleteDealer,
+  verifyDealer,
+  extendDealerAccess,
   getSalesDashboard,
   getAdminUsers,
   updateUserRoleAndCommission,
@@ -33,6 +35,8 @@ router.patch("/cars/:id/gallery", requireAuth, replaceGallery);
 // 👤 Dealer Routes
 router.get("/dealers", getAllDealers);
 router.post("/dealers", addDealer);
+router.post("/dealers/:id/verify", requireAuth, requireRole("admin"), verifyDealer);
+router.patch("/dealers/:id/extend", requireAuth, requireRole("admin"), extendDealerAccess);
 router.delete("/dealers/:id", deleteDealer);
 
 // 📊 Sales Routes

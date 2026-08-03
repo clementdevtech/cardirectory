@@ -73,6 +73,8 @@ type Dealer = {
   phone?: string;
   created_at?: string;
   company_logo?: string;
+  status?: string;
+  verified?: boolean;
 };
 
 // env & api
@@ -676,6 +678,57 @@ const AdminDashboard: React.FC = () => {
     }
   };
 
+  const handleVerifyDealer = async (id: string) => {
+    if (!confirm("Verify this dealer account?")) return;
+    try {
+      await axiosInstance.post(`/dealers/${id}/verify`);
+      toast({ title: "Dealer verified", description: "Dealer account has been verified successfully." });
+      fetchDashboardData();
+    } catch (err: any) {
+      toast({
+        title: "Verification failed",
+        description: err?.response?.data?.message || err.message || "An error occurred",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleExtendDealer = async (id: string) => {
+    const days = prompt("Enter extra grace days (0 to skip)", "7");
+    if (days === null) return;
+    const listings = prompt("Enter extra listing allowance (0 to skip)", "10");
+    if (listings === null) return;
+
+    const extraDays = Number(days);
+    const extraListings = Number(listings);
+
+    if (Number.isNaN(extraDays) || extraDays < 0 || Number.isNaN(extraListings) || extraListings < 0) {
+      toast({
+        title: "Invalid values",
+        description: "Please enter valid numbers for grace days and listings.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (extraDays === 0 && extraListings === 0) {
+      toast({ title: "No changes made", description: "You must add grace days or listing allowance." });
+      return;
+    }
+
+    try {
+      await axiosInstance.patch(`/dealers/${id}/extend`, { extraDays, extraListings });
+      toast({ title: "Dealer extended", description: "Grace days and listing allowance were updated." });
+      fetchDashboardData();
+    } catch (err: any) {
+      toast({
+        title: "Update failed",
+        description: err?.response?.data?.error || err?.response?.data?.message || err.message || "An error occurred",
+        variant: "destructive",
+      });
+    }
+  };
+
   const handleUpdateUser = async (userId: string, role: string, commissionRate: number) => {
     try {
       setSavingUser(userId);
@@ -1262,6 +1315,14 @@ const AdminDashboard: React.FC = () => {
                                 <Button size="sm" variant="outline" onClick={() => handleCreateForDealer(d)}>
                                   <CarIcon className="mr-1 h-4 w-4" /> Create for dealer
                                 </Button>
+                                <Button size="sm" variant="secondary" onClick={() => handleExtendDealer(d.id)}>
+                                  <Star className="mr-1 h-4 w-4" /> Extend
+                                </Button>
+                                {d.status !== "verified" && (
+                                  <Button size="sm" className="bg-emerald-500 text-white hover:bg-emerald-600" onClick={() => handleVerifyDealer(d.id)}>
+                                    <CheckCircle className="mr-1 h-4 w-4" /> Verify
+                                  </Button>
+                                )}
                                 <Button size="sm" variant="destructive" onClick={() => handleDeleteDealer(d.id)}>
                                   <UserX className="mr-1 h-4 w-4" /> Remove
                                 </Button>

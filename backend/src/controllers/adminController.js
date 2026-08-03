@@ -615,8 +615,124 @@ const deleteDealer = async (req, res) => {
 };
 
 /* ======================================================
+   ✅ Verify dealer (ADMIN)
+====================================================== */
+const verifyDealer = async (req, res) => {
+  try {
+    const id = req.params.id;
+    const result = await query(
+      `UPDATE dealers SET verified = true, status = 'verified', verified_at = NOW() WHERE id = $1 RETURNING *`,
+      [id]
+    );
+
+    if (!result.rows.length) {
+      return res.status(404).json({ error: "Dealer not found" });
+    }
+
+    res.json({ message: "✅ Dealer verified successfully", dealer: result.rows[0] });
+  } catch (err) {
+    console.error("❌ verifyDealer:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+/* ======================================================
    🛡️ Admin override toggle
 ====================================================== */
+const extendDealerAccess = async (req, res) => {
+  try {
+    const dealerId = req.params.id;
+    const { extraDays, extraListings } = req.body;
+
+    if (!dealerId) {
+      return res.status(400).json({ error: "Dealer id is required" });
+    }
+
+    if ((typeof extraDays !== "number" || extraDays < 0) && (typeof extraListings !== "number" || extraListings < 0)) {
+      return res.status(400).json({ error: "extraDays or extraListings must be provided" });
+    }
+
+    const dealerResult = await query(`SELECT id, user_id FROM dealers WHERE id = $1`, [dealerId]);
+    if (!dealerResult.rows.length) {
+      return res.status(404).json({ error: "Dealer not found" });
+    }
+
+    const dealer = dealerResult.rows[0];
+    const now = new Date();
+    const existingSub = await query(
+      `SELECT * FROM subscriptions WHERE dealer_id = $1 ORDER BY end_date DESC LIMIT 1`,
+      [dealerId]
+    );
+
+    let endDate = now;
+    let listingsAllowed = extraListings ?? 0;
+    let listingsUsed = 0;
+    let result;
+
+    if (existingSub.rows.length > 0) {
+      const subscription = existingSub.rows[0];
+      const currentEndDate = subscription.end_date ? new Date(subscription.end_date) : now;
+      endDate = currentEndDate > now ? currentEndDate : now;
+      listingsAllowed = (subscription.listings_allowed ?? 0) + (extraListings ?? 0);
+      listingsUsed = subscription.listings_used ?? 0;
+
+      if (typeof extraDays === "number" && extraDays > 0) {
+        endDate.setDate(endDate.getDate() + extraDays);
+      }
+
+      result = await query(
+        `UPDATE subscriptions
+         SET end_date = $1,
+             listings_allowed = $2,
+             active = true
+         WHERE id = $3
+         RETURNING *`,
+        [endDate.toISOString(), listingsAllowed, subscription.id]
+      );
+    } else {
+      if (typeof extraDays === "number" && extraDays > 0) {
+        endDate.setDate(endDate.getDate() + extraDays);
+      }
+
+      if (endDate <= now) {
+        endDate = new Date(now);
+        endDate.setDate(endDate.getDate() + 7);
+      }
+
+      result = await query(
+        `INSERT INTO subscriptions
+         (dealer_id, plan_name, listings_allowed, listings_used, start_date, end_date, active)
+         VALUES ($1, 'admin-extension', $2, $3, $4, $5, true)
+         RETURNING *`,
+        [dealerId, listingsAllowed, listingsUsed, now.toISOString(), endDate.toISOString()]
+      );
+    }
+
+    if (typeof extraDays === "number" && extraDays > 0) {
+      const userResult = await query(`SELECT trial_end FROM users WHERE id = $1`, [dealer.user_id]);
+      if (userResult.rows.length > 0) {
+        const trialRow = userResult.rows[0];
+        const currentTrialEnd = trialRow.trial_end ? new Date(trialRow.trial_end) : now;
+        const newTrialEnd = new Date(currentTrialEnd > now ? currentTrialEnd : now);
+        newTrialEnd.setDate(newTrialEnd.getDate() + extraDays);
+
+        await query(
+          `UPDATE users SET trial_end = $1, trial_used = true WHERE id = $2`,
+          [newTrialEnd.toISOString(), dealer.user_id]
+        );
+      }
+    }
+
+    res.json({
+      message: "✅ Dealer access extended successfully",
+      subscription: result.rows[0],
+    });
+  } catch (err) {
+    console.error("❌ extendDealerAccess:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+};
+
 const toggleAdminOverride = async (req, res) => {
   const dealerId = req.body.dealerId;
   const enabled = req.body.enabled;
@@ -642,6 +758,8 @@ module.exports = {
   replaceGallery,
   addDealer,
   deleteDealer,
+  verifyDealer,
+  extendDealerAccess,
   toggleAdminOverride,
   getSalesDashboard,
   getAdminUsers,
