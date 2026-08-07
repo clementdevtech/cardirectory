@@ -19,18 +19,21 @@ export function carSlug(car: CarSlugSource) {
 export function parseCarSlug(slug: string): number | null {
   if (!slug) return null;
 
-  // Support both modern slugs like "toyota-corolla-56"
-  // and legacy/raw IDs like "56" or "56-car-name".
-  const idMatch = slug.match(/(\d+)$/);
-  if (idMatch) {
-    const id = Number(idMatch[1]);
-    return Number.isFinite(id) ? id : null;
+  const normalized = slug.trim();
+  const segments = normalized.split("-").filter(Boolean);
+  if (segments.length === 0) return null;
+
+  // Last segment should be the numeric ID when using slug-based car URLs.
+  const lastSegment = segments[segments.length - 1];
+  const lastId = Number(lastSegment);
+  if (Number.isInteger(lastId) && lastId > 0) {
+    return lastId;
   }
 
-  const prefixMatch = slug.match(/^(\d+)/);
-  if (prefixMatch) {
-    const id = Number(prefixMatch[1]);
-    return Number.isFinite(id) ? id : null;
+  // Fallback for plain numeric slug values like "56".
+  const numericSlug = Number(normalized);
+  if (Number.isInteger(numericSlug) && numericSlug > 0) {
+    return numericSlug;
   }
 
   return null;

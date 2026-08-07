@@ -44,7 +44,8 @@ type Dealer = {
 const CarDetail: React.FC = () => {
   const { slug } = useParams<{ slug: string }>();
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
-  const id = slug ? parseCarSlug(slug) : null;
+  const rawId = slug && /^\d+$/.test(slug) ? Number(slug) : null;
+  const id = slug ? parseCarSlug(slug) ?? rawId : null;
 
   // 🧩 Fetch Car Info
   const {
