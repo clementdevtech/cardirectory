@@ -6,6 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Loader2, MapPin, Phone, Mail, CheckCircle } from "lucide-react";
 import { dealerCompanySlug } from "@/utils/dealerSlug";
+import { buildWhatsappUrl } from "@/lib/utils";
 
 interface Dealer {
   id: string;
@@ -182,7 +183,7 @@ const Dealers: React.FC = () => {
                       {d.phone && (
                         <>
                           <a
-                            href={`https://wa.me/${d.phone.replace(/\s/g, "")}`}
+                            href={buildWhatsappUrl(d.phone)}
                             target="_blank"
                             rel="noreferrer"
                             onClick={(e) => e.stopPropagation()}

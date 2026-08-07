@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { MapPin, Phone, Mail, MessageCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { buildWhatsappUrl } from "@/lib/utils";
 
 const Contact = () => {
   const { toast } = useToast();
@@ -19,7 +20,10 @@ const Contact = () => {
     });
   };
 
-  const whatsappUrl = "https://wa.me/254700002020?text=Hi, I have a question about CarDirectory";
+  const whatsappUrl = buildWhatsappUrl(
+    "+254700002020",
+    "Hi, I have a question about CarDirectory"
+  );
 
   return (
     <div className="min-h-screen flex flex-col">

@@ -5,7 +5,10 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Link } from "react-router-dom";
 import CarCardMedia from "@/components/CarCardMedia";
+import ShareActions from "@/components/ShareActions";
 import { Input } from "@/components/ui/input";
+import { buildWhatsappUrl } from "@/lib/utils";
+import { carSlug } from "@/utils/carSlug";
 
 // ✅ Matches your actual cars table
 interface Car {
@@ -195,19 +198,17 @@ const FeaturedCars: React.FC = () => {
 
                 {/* 📞 Action Buttons */}
                 <div className="flex gap-2 pt-2 sm:pt-3">
-                  <Link to={`/cars/${car.id}`} className="flex-1">
+                  <Link to={`/cars/${carSlug(car)}`} className="flex-1">
                     <Button variant="default" className="w-full h-9 sm:h-10 px-2 sm:px-4 text-xs sm:text-sm">
                       View Details
                     </Button>
                   </Link>
                   {car.phone && (
                     <a
-                      href={`https://wa.me/${car.phone.replace(
-                        /^0/,
-                        "+254"
-                      )}?text=${encodeURIComponent(
+                      href={buildWhatsappUrl(
+                        car.phone,
                         `Hi, I'm interested in your ${car.year} ${car.make} ${car.model} listed on AutoKenya.`
-                      )}`}
+                      )}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="flex-1"
@@ -221,6 +222,16 @@ const FeaturedCars: React.FC = () => {
                     </a>
                   )}
                 </div>
+                <ShareActions
+                  compact
+                  url={`/cars/${carSlug(car)}`}
+                  carId={car.id}
+                  title={`${car.year} ${car.make} ${car.model}`}
+                  description={`Check out this ${car.year} ${car.make} ${car.model} for ${formatPrice(
+                    Number(car.price)
+                  )} in ${car.location}.`}
+                  imageUrl={car.image ?? car.gallery?.[0] ?? "/placeholder-car.jpg"}
+                />
               </CardContent>
             </Card>
           ))}

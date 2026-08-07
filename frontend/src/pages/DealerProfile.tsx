@@ -5,7 +5,10 @@ import { supabase } from "@/integrations/supabase/client";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import { ArrowLeft, CheckCircle, Mail, MapPin, Phone } from "lucide-react";
+import ShareActions from "@/components/ShareActions";
 import { dealerCompanySlug } from "@/utils/dealerSlug";
+import { carSlug } from "@/utils/carSlug";
+import { buildWhatsappUrl } from "@/lib/utils";
 
 interface Dealer {
   id: string;
@@ -170,7 +173,7 @@ const DealerProfile: React.FC = () => {
                   {dealer.phone && (
                     <>
                       <a
-                        href={`https://wa.me/${dealer.phone.replace(/\s/g, "")}`}
+                        href={buildWhatsappUrl(dealer.phone)}
                         target="_blank"
                         rel="noreferrer"
                         className="inline-flex items-center gap-2 rounded-md border border-green-200 bg-green-50 px-3 py-2 text-sm font-medium text-green-700 hover:bg-green-100"
@@ -212,36 +215,52 @@ const DealerProfile: React.FC = () => {
               ) : (
                 <div className="mt-6 grid gap-4 grid-cols-2 sm:grid-cols-2 lg:grid-cols-3">
                   {cars.map((car) => (
-                    <Link
+                    <div
                       key={car.id}
-                      to={`/cars/${car.id}`}
                       className="overflow-hidden rounded-xl border bg-white shadow-sm transition hover:-translate-y-1 hover:shadow-md"
                     >
-                      <div className="h-36 bg-gray-100">
-                        {car.gallery?.[0] ? (
-                          <img
-                            src={car.gallery[0]}
-                            alt={`${car.make} ${car.model}`}
-                            className="h-full w-full object-cover"
-                          />
-                        ) : (
-                          <div className="flex h-full items-center justify-center text-sm text-gray-500">
-                            No image
-                          </div>
-                        )}
+                      <Link
+                        to={`/cars/${carSlug(car)}`}
+                        className="block"
+                      >
+                        <div className="h-36 bg-gray-100">
+                          {car.gallery?.[0] ? (
+                            <img
+                              src={car.gallery[0]}
+                              alt={`${car.make} ${car.model}`}
+                              className="h-full w-full object-cover"
+                            />
+                          ) : (
+                            <div className="flex h-full items-center justify-center text-sm text-gray-500">
+                              No image
+                            </div>
+                          )}
+                        </div>
+                        <div className="p-4">
+                          <p className="text-sm text-gray-500">
+                            {car.year || ""} {car.year ? "•" : ""} {car.location || "Unknown location"}
+                          </p>
+                          <h3 className="mt-1 font-semibold text-lg">
+                            {car.make} {car.model}
+                          </h3>
+                          <p className="mt-2 text-sm text-gray-600">
+                            {formatPrice(Number(car.price))}
+                          </p>
+                        </div>
+                      </Link>
+                      <div className="border-t px-4 pb-4 pt-3">
+                        <ShareActions
+                          compact
+                          url={`/cars/${carSlug(car)}`}
+                          carId={car.id}
+                          title={`${car.year ?? ""} ${car.make} ${car.model}`}
+                          description={`Check out this ${car.year ?? ""} ${car.make} ${car.model} for ${formatPrice(
+                            Number(car.price)
+                          )} in ${car.location ?? "Kenya"}.`}
+                          imageUrl={car.gallery?.[0] ?? "/placeholder-car.jpg"}
+                        />
                       </div>
-                      <div className="p-4">
-                        <p className="text-sm text-gray-500">
-                          {car.year || ""} {car.year ? "•" : ""} {car.location || "Unknown location"}
-                        </p>
-                        <h3 className="mt-1 font-semibold text-lg">
-                          {car.make} {car.model}
-                        </h3>
-                        <p className="mt-2 text-sm text-gray-600">
-                          {formatPrice(Number(car.price))}
-                        </p>
-                      </div>
-                    </Link>
+                    </div>
                   ))}
                 </div>
               )}

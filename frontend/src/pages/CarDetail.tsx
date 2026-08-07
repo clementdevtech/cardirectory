@@ -5,6 +5,9 @@ import { supabase } from "@/integrations/supabase/client";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import { Phone, Mail, MapPin } from "lucide-react";
+import ShareActions from "@/components/ShareActions";
+import { buildWhatsappUrl } from "@/lib/utils";
+import { parseCarSlug } from "@/utils/carSlug";
 
 const formatPrice = (price: number) =>
   new Intl.NumberFormat("en-KE", {
@@ -39,8 +42,9 @@ type Dealer = {
 };
 
 const CarDetail: React.FC = () => {
-  const { id } = useParams<{ id: string }>();
+  const { slug } = useParams<{ slug: string }>();
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const id = slug ? parseCarSlug(slug) : null;
 
   // 🧩 Fetch Car Info
   const {
@@ -59,7 +63,7 @@ const CarDetail: React.FC = () => {
       if (error) throw new Error(error.message);
       return data as Car;
     },
-    enabled: !!id,
+    enabled: id !== null,
   });
 
   // 🧩 Fetch Dealer Info if car found
@@ -91,12 +95,10 @@ const CarDetail: React.FC = () => {
   if (!car) return <div className="container px-4 py-8">Car not found.</div>;
 
   const mainImage = selectedImage || car.gallery?.[0] || car.image || "";
-  const whatsappUrl = `https://wa.me/${car.phone?.replace(
-    /^0/,
-    "254"
-  )}?text=${encodeURIComponent(
+  const whatsappUrl = buildWhatsappUrl(
+    car.phone,
     `Hi, I'm interested in the ${car.year} ${car.make} ${car.model} listed on Auto Kenya.`
-  )}`;
+  );
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
@@ -192,7 +194,7 @@ const CarDetail: React.FC = () => {
                     {dealer.phone && (
                       <>
                         <a
-                          href={`https://wa.me/${dealer.phone.replace(/\s/g, "")}`}
+                          href={buildWhatsappUrl(dealer.phone)}
                           target="_blank"
                           rel="noreferrer"
                           className="flex items-center justify-center gap-2 bg-green-600 text-white py-2 rounded hover:bg-green-700 transition"
@@ -233,6 +235,16 @@ const CarDetail: React.FC = () => {
                 >
                   Message on WhatsApp
                 </a>
+                <ShareActions
+                  compact
+                  url={`/cars/${slug}`}
+                  carId={car.id}
+                  title={`${car.year} ${car.make} ${car.model}`}
+                  description={`Check out this ${car.year} ${car.make} ${car.model} for ${formatPrice(
+                    Number(car.price)
+                  )} in ${car.location || "N/A"}.`}
+                  imageUrl={mainImage || "/placeholder-car.jpg"}
+                />
               </div>
 
               <Link

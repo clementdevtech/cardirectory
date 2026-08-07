@@ -6,8 +6,11 @@ import { Card, CardContent } from "@/components/ui/card";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import CarCardMedia from "@/components/CarCardMedia";
+import ShareActions from "@/components/ShareActions";
 import { Input } from "@/components/ui/input";
 import { X, ChevronLeft, ChevronRight } from "lucide-react";
+import { buildWhatsappUrl } from "@/lib/utils";
+import { carSlug } from "@/utils/carSlug";
 
 const formatPrice = (price: number) =>
   new Intl.NumberFormat("en-KE", {
@@ -197,16 +200,13 @@ const BrowseCars = () => {
                       </p>
 
                       <div className="flex gap-1 sm:gap-2 mt-2 sm:mt-4">
-                        <Link to={`/cars/${car.id}`} className="flex-1">
+                        <Link to={`/cars/${carSlug(car)}`} className="flex-1">
                           <button className="w-full py-1.5 sm:py-2 text-xs sm:text-sm bg-gray-800 text-white rounded hover:bg-gray-900 transition">
                             View Details
                           </button>
                         </Link>
                         <a
-                          href={`https://wa.me/${car.phone?.replace(
-                            /[^0-9]/g,
-                            ""
-                          )}?text=Hi! I'm interested in your ${car.make} ${car.model}`}
+                          href={buildWhatsappUrl(car.phone, `Hi! I'm interested in your ${car.make} ${car.model}`)}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="px-2 sm:px-3 py-1.5 sm:py-2 text-[11px] sm:text-sm border rounded hover:bg-gray-100"
@@ -214,6 +214,14 @@ const BrowseCars = () => {
                           WhatsApp
                         </a>
                       </div>
+                      <ShareActions
+                        compact
+                        url={`/cars/${carSlug(car)}`}
+                        carId={car.id}
+                        title={`${car.year} ${car.make} ${car.model}`}
+                        description={`Check out this ${car.year} ${car.make} ${car.model} for ${formatPrice(Number(car.price))} in ${car.location}.`}
+                        imageUrl={images[0]}
+                      />
                     </CardContent>
                   </Card>
                 );
