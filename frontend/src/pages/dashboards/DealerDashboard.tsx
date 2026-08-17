@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -112,6 +112,7 @@ const DealerDashboard: React.FC = () => {
   const [billingVariant, setBillingVariant] = useState<
     "default" | "warning" | "destructive"
   >("default");
+  const [trialCountdown, setTrialCountdown] = useState<string>("--");
 
   const [isCarDialogOpen, setIsCarDialogOpen] = useState(false);
   const [carStep, setCarStep] = useState(1);
@@ -269,10 +270,60 @@ useEffect(() => {
   /* ============================
      Listing limit enforcement
   ============================ */
+  const freeTrialListingLimit = billing?.is_on_trial ? 2 : null;
+  const activeListingLimit = dealerSub?.listing_limit ?? freeTrialListingLimit;
   const listingLimitReached =
-  dealerSub &&
-  dealerSub.listing_limit !== null &&
-  listings.length >= dealerSub.listing_limit;
+    activeListingLimit !== null && listings.length >= activeListingLimit;
+
+  const activeTrialEnd = useMemo(() => {
+    if (!billing?.is_on_trial || !billing.trial_end) return null;
+    const end = new Date(billing.trial_end);
+    return Number.isNaN(end.getTime()) ? null : end;
+  }, [billing]);
+
+  useEffect(() => {
+    if (!activeTrialEnd) {
+      setTrialCountdown("Trial not active");
+      return;
+    }
+
+    const updateCountdown = () => {
+      const now = new Date();
+      const diff = activeTrialEnd.getTime() - now.getTime();
+
+      if (diff <= 0) {
+        setTrialCountdown("Trial expired");
+        return;
+      }
+
+      const totalMinutes = Math.max(0, Math.floor(diff / 60000));
+      const days = Math.floor(totalMinutes / (60 * 24));
+      const hours = Math.floor((totalMinutes % (60 * 24)) / 60);
+      const minutes = totalMinutes % 60;
+
+      if (days > 0) {
+        setTrialCountdown(`${days}d ${hours}h ${minutes}m left`);
+      } else if (hours > 0) {
+        setTrialCountdown(`${hours}h ${minutes}m left`);
+      } else {
+        setTrialCountdown(`${minutes}m left`);
+      }
+    };
+
+    updateCountdown();
+    const interval = window.setInterval(updateCountdown, 60000);
+    return () => window.clearInterval(interval);
+  }, [activeTrialEnd]);
+
+  const isDealerVerified = Boolean(
+    dealer?.status?.toLowerCase() === "verified" ||
+    dealer?.status?.toLowerCase() === "active" ||
+    dealer?.verified === true ||
+    (dealerSub && dealerSub.status === "active")
+  );
+
+  const canAddVehicle =
+    !listingLimitReached && (isDealerVerified || (billing?.is_on_trial && billing.trial_end && new Date(billing.trial_end) > new Date()));
 
   /* ============================
      Save dealer profile
@@ -393,8 +444,6 @@ useEffect(() => {
   /* ============================
      Render
   ============================ */
-    const isDealerVerified = dealer.verified === true || dealer.status?.toLowerCase() === "verified";
-
     if (location.pathname === "/dealer/profile") {
       return (
         <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-red-50/40">
@@ -455,11 +504,19 @@ useEffect(() => {
   return (
     <div className="container mx-auto p-6">
       {/* Header */}
-      <div className="flex justify-between items-center mb-4">
-        <h1 className="text-3xl font-bold">Dealer Dashboard</h1>
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between mb-4">
+        <div className="flex flex-col gap-2">
+          <h1 className="text-3xl font-bold">Dealer Dashboard</h1>
+          {billing?.is_on_trial && activeTrialEnd && (
+            <div className="inline-flex w-fit items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-800">
+              <Bell className="h-4 w-4" />
+              <span>Free trial: {trialCountdown}</span>
+            </div>
+          )}
+        </div>
 
         <div className="flex gap-2">
-          {isDealerVerified && !listingLimitReached ? (
+          {canAddVehicle ? (
             <Dialog open={isCarDialogOpen} onOpenChange={setIsCarDialogOpen}>
               <DialogTrigger asChild>
                 <Button>
@@ -496,7 +553,7 @@ useEffect(() => {
               <Lock className="mr-2 h-4 w-4" />
               {listingLimitReached
                 ? "Listing limit reached"
-                : "Verify account to add vehicles"}
+                : "Upgrade or verify account to add vehicles"}
             </Button>
           )}
 

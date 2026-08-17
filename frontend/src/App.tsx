@@ -157,7 +157,9 @@ const App = () => {
               </div>
             }
           >
-            <RouterProvider router={router} />
+            <div className="pt-20 md:pt-24">
+              <RouterProvider router={router} />
+            </div>
           </Suspense>
         </AuthProvider>
       </TooltipProvider>

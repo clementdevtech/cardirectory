@@ -10,9 +10,9 @@ async function createDealer(payload) {
   const { name, email, phone = null, country = null } = payload;
 
   const sql = `
-    INSERT INTO dealers (name, email, phone, country, verified, created_at)
-    VALUES ($1, $2, $3, $4, false, now())
-    RETURNING id, name, email, phone, country, verified, verified_at, created_at
+    INSERT INTO dealers (name, email, phone, country, status, created_at)
+    VALUES ($1, $2, $3, $4, 'pending', now())
+    RETURNING id, name, email, phone, country, status, created_at
   `;
 
   try {
@@ -31,7 +31,7 @@ async function createDealer(payload) {
  */
 async function getDealerById(id) {
   const sql = `
-    SELECT id, name, email, phone, country, verified, verified_at, created_at
+    SELECT id, name, email, phone, country, status, created_at
     FROM dealers
     WHERE id = $1
     LIMIT 1
@@ -54,9 +54,7 @@ async function getDealerById(id) {
 async function setDealerVerified(id) {
   const sql = `
     UPDATE dealers
-    SET verified = true,
-        status = 'verified',
-        verified_at = now()
+    SET status = 'verified'
     WHERE id = $1
     RETURNING id
   `;

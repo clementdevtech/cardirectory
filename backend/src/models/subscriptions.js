@@ -9,15 +9,15 @@ async function createSubscription(opts) {
 
   const res = await query(
     `
-    INSERT INTO subscriptions
-      (dealer_id, plan_name, listings_allowed, listings_used, start_date, end_date, active)
-    VALUES ($1,$2,$3,0,$4,$5,true)
+    INSERT INTO dealer_subscriptions
+      (dealer_id, plan_name, listing_limit, start_date, end_date, status)
+    VALUES ($1,$2,$3,$4,$5,'active')
     RETURNING *
     `,
     [
       opts.dealer_id,
       opts.plan_name,
-      opts.listings_allowed,
+      opts.listing_limit ?? opts.listings_allowed ?? 0,
       start,
       end,
     ]
@@ -30,9 +30,9 @@ async function getActiveSubscription(dealer_id) {
   const res = await query(
     `
     SELECT *
-    FROM subscriptions
+    FROM dealer_subscriptions
     WHERE dealer_id = $1
-      AND active = true
+      AND status = 'active'
       AND end_date > now()
     ORDER BY end_date DESC
     LIMIT 1
@@ -46,8 +46,8 @@ async function getActiveSubscription(dealer_id) {
 async function incrementListingsUsed(subscription_id) {
   await query(
     `
-    UPDATE subscriptions
-    SET listings_used = listings_used + 1
+    UPDATE dealer_subscriptions
+    SET listing_limit = listing_limit
     WHERE id = $1
     `,
     [subscription_id]

@@ -8,6 +8,7 @@ const {
   sendMassEmail,
   sendTrialActivationEmail,
   sendTrialReminderEmail,
+  sendDealerWelcomeEmail,
 } = require("./emailController");
 
 /* =====================================
@@ -194,82 +195,111 @@ exports.handlePesapalIPN = async (req, res) => {
     const failedStates = ["FAILED", "CANCELLED", "REVERSED", "INVALID"];
 
     if (successStates.includes(paymentStatus)) {
-      if (payment.status !== "success") {
-        await query(
-          `UPDATE payments SET status = 'success' WHERE merchant_reference = $1`,
-          [OrderMerchantReference]
-        );
-
-        const startDate = new Date();
-        const endDate = new Date();
-        endDate.setDate(startDate.getDate() + 30);
-
-    if (payment.status === "success") {
+      if (payment.status === "success") {
         console.log("⚠️ IPN already processed, skipping.");
         return res.json({ received: true, duplicate: true });
       }
 
+      await query(
+        `UPDATE payments SET status = 'success' WHERE merchant_reference = $1`,
+        [OrderMerchantReference]
+      );
 
-        await query(
-          `INSERT INTO subscriptions
-           (user_id, plan_name, price, listings_allowed, listings_used, start_date, end_date, status)
-           VALUES ($1,$2,$3,50,0,$4,$5,'active')
-           ON CONFLICT (user_id)
-           DO UPDATE SET
-             plan_name = EXCLUDED.plan_name,
-             price = EXCLUDED.price,
-             listings_allowed = EXCLUDED.listings_allowed,
-             listings_used = 0,
-             start_date = EXCLUDED.start_date,
-             end_date = EXCLUDED.end_date,
-             status = 'active'`,
-          [
-            payment.user_id,
-            payment.plan_name,
-            payment.amount,
-            startDate.toISOString(),
-            endDate.toISOString(),
-          ]
+      const startDate = new Date();
+      const endDate = new Date();
+      endDate.setDate(startDate.getDate() + 30);
+
+      const dealerRow = await query(
+        `SELECT id FROM dealers WHERE user_id = $1 LIMIT 1`,
+        [payment.user_id]
+      );
+
+      const dealerId = dealerRow.rows[0]?.id;
+
+      if (dealerId) {
+        const subscriptionRow = await query(
+          `SELECT id FROM dealer_subscriptions WHERE dealer_id = $1 ORDER BY end_date DESC LIMIT 1`,
+          [dealerId]
         );
 
-        await query(`UPDATE users SET role='dealer' WHERE id=$1`, [
-          payment.user_id,
-        ]);
-
-        await query(
-          `INSERT INTO user_roles (user_id, role)
-           VALUES ($1,'dealer')
-           ON CONFLICT (user_id)
-           DO UPDATE SET role='dealer'`,
-          [payment.user_id]
-        );
-
-        await query(
-          `INSERT INTO dealers
-            (user_id, full_name, email, phone, status, created_at)
-           SELECT $1, $2, $3, $4, 'pending', NOW()
-           WHERE NOT EXISTS (
-             SELECT 1 FROM dealers WHERE user_id = $1
-           )`,
-          [
-            payment.user_id,
-            user?.full_name || "Unnamed Dealer",
-            user?.email,
-            user?.phone || null,
-          ]
-        );
-
-        if (user && user.email) {
-          await sendMassEmail(
-            [user.email],
-            "Payment Successful",
-            `Hi ${user.full_name || "there"},<br/><br/>
-             Your payment of <b>KES ${payment.amount}</b> for the 
-             <b>${payment.plan_name}</b> plan was successful.<br/>
-             Your dealer account is now active for 30 days.<br/><br/>
-             <a href="${FRONTEND_URL}/dashboard">Go to Dashboard</a>`
+        if (subscriptionRow.rows.length) {
+          await query(
+            `UPDATE dealer_subscriptions
+             SET plan_name = $2,
+                 price = $3,
+                 listing_limit = 50,
+                 start_date = $4,
+                 end_date = $5,
+                 status = 'active'
+             WHERE id = $6`,
+            [
+              payment.user_id,
+              payment.plan_name,
+              payment.amount,
+              startDate.toISOString(),
+              endDate.toISOString(),
+              subscriptionRow.rows[0].id,
+            ]
+          );
+        } else {
+          await query(
+            `INSERT INTO dealer_subscriptions
+             (dealer_id, plan_name, price, listing_limit, start_date, end_date, status)
+             VALUES ($1, $2, $3, 50, $4, $5, 'active')`,
+            [
+              dealerId,
+              payment.plan_name,
+              payment.amount,
+              startDate.toISOString(),
+              endDate.toISOString(),
+            ]
           );
         }
+      }
+
+      await query(`UPDATE users SET role='dealer' WHERE id=$1`, [
+        payment.user_id,
+      ]);
+
+      await query(
+        `INSERT INTO user_roles (user_id, role)
+         VALUES ($1,'dealer')
+         ON CONFLICT (user_id)
+         DO UPDATE SET role='dealer'`,
+        [payment.user_id]
+      );
+
+      await query(
+        `INSERT INTO dealers
+          (user_id, full_name, email, phone, status, created_at)
+         SELECT $1, $2, $3, $4, 'pending', NOW()
+         WHERE NOT EXISTS (
+           SELECT 1 FROM dealers WHERE user_id = $1
+         )`,
+        [
+          payment.user_id,
+          user?.full_name || "Unnamed Dealer",
+          user?.email,
+          user?.phone || null,
+        ]
+      );
+
+      if (user && user.email) {
+        await sendDealerWelcomeEmail(user.email, user.full_name || "Dealer", {
+          planName: payment.plan_name || "Dealer",
+          accessUrl: `${FRONTEND_URL}/dashboard`,
+          accessLabel: "Go to Dashboard",
+        });
+
+        await sendMassEmail(
+          [user.email],
+          "Payment Successful",
+          `Hi ${user.full_name || "there"},<br/><br/>
+           Your payment of <b>KES ${payment.amount}</b> for the
+           <b>${payment.plan_name}</b> plan was successful.<br/>
+           Your dealer account is now active for 30 days.<br/><br/>
+           <a href="${FRONTEND_URL}/dashboard">Go to Dashboard</a>`
+        );
       }
     } else if (failedStates.includes(paymentStatus)) {
       await query(
@@ -507,6 +537,7 @@ exports.activateFreeTrial = async (req, res) => {
       `
       UPDATE users
       SET role = 'dealer',
+          is_on_trial = true,
           trial_start = $1,
           trial_end = $2,
           trial_used = true,
@@ -540,6 +571,11 @@ exports.activateFreeTrial = async (req, res) => {
     }
 
     await sendTrialActivationEmail(email, newTrialEnd);
+    await sendDealerWelcomeEmail(email, existing.full_name || full_name || "Dealer", {
+      planName: "Free Trial",
+      accessUrl: `${FRONTEND_URL}/dashboard`,
+      accessLabel: "Go to Dashboard",
+    });
 
     return res.json({
       success: true,

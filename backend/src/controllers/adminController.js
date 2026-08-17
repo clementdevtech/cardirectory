@@ -62,7 +62,7 @@ const getSalesDashboard = async (req, res) => {
 const getAdminUsers = async (req, res) => {
   try {
     const result = await query(`
-      SELECT id, full_name, email, role, is_verified, commission_rate, created_at
+      SELECT id, full_name, email, role, is_verified, commission_rate, is_on_trial, trial_end, trial_used, created_at
       FROM users
       ORDER BY created_at DESC
     `);
@@ -123,10 +123,10 @@ const updateUserRoleAndCommission = async (req, res) => {
           const user = userResult.rows[0];
           await query(
             `INSERT INTO dealers
-              (id, user_id, full_name, company_name, email, phone, status, created_at)
-             VALUES ($1, $2, $3, $3, $4, $5, 'pending', NOW())
+              (user_id, full_name, company_name, email, phone, status, created_at)
+             VALUES ($1, $2, $2, $3, $4, 'pending', NOW())
              ON CONFLICT (user_id) DO NOTHING`,
-            [uuidv4(), id, user.full_name, user.email, user.phone || null]
+            [id, user.full_name, user.email, user.phone || null]
           );
         }
       }
@@ -199,16 +199,14 @@ const ensureDealerActive = async (userId) => {
 
     const dealerId = dealer.id;
 
-    // 3️⃣ Check for active subscription
-    // Use timezone-safe UTC comparison
+    // 3️⃣ Check for active subscription using the current dealer_subscriptions table
     const subscriptionResult = await query(
       `
       SELECT *
-      FROM subscriptions
+      FROM dealer_subscriptions
       WHERE dealer_id = $1
-        AND start_date <= now() AT TIME ZONE 'UTC'
-        AND end_date >= now() AT TIME ZONE 'UTC'
-        AND (listings_allowed IS NULL OR listings_used < listings_allowed)
+        AND status = 'active'
+        AND end_date >= now()
       ORDER BY end_date DESC
       LIMIT 1
       `,
@@ -216,16 +214,21 @@ const ensureDealerActive = async (userId) => {
     );
 
     if (!subscriptionResult.rows.length) {
-      // No active subscription
       return false;
     }
 
-    // 4️⃣ Increment listings_used
     const subscription = subscriptionResult.rows[0];
-    await query(
-      `UPDATE subscriptions SET listings_used = listings_used + 1 WHERE id = $1`,
-      [subscription.id]
+    const { rows: countRows } = await query(
+      `SELECT COUNT(*)::int AS total FROM cars WHERE dealer_id = $1`,
+      [dealerId]
     );
+
+    const totalListings = Number(countRows[0]?.total || 0);
+    const listingLimit = Number(subscription.listing_limit || 0);
+
+    if (listingLimit > 0 && totalListings >= listingLimit) {
+      return false;
+    }
 
     return true;
   } catch (err) {
@@ -563,19 +566,22 @@ const addDealer = async (req, res) => {
     const logoUrl = logo ? await uploadLogoToR2(logo) : "default_logo.png";
 
     const userId = uuidv4();
-    const dealerId = uuidv4();
+
+    const now = new Date();
+    const trialEnd = new Date(now);
+    trialEnd.setDate(trialEnd.getDate() + 7);
 
     await query(
-      `INSERT INTO users (id, full_name, email, password, role, is_verified, created_at)
-       VALUES ($1,$2,$3,$4,'dealer',true,NOW())`,
-      [userId, full_name, email, hashed]
+      `INSERT INTO users (id, full_name, email, password, role, is_verified, is_on_trial, trial_start, trial_end, trial_used, created_at)
+       VALUES ($1,$2,$3,$4,'dealer',true,true,$5,$6,true,NOW())`,
+      [userId, full_name, email, hashed, now.toISOString(), trialEnd.toISOString()]
     );
 
     const dealer = await query(
       `INSERT INTO dealers
-       (id, user_id, full_name, company_name, email, phone, country, company_logo, status, referred_by, created_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'verified',$9,NOW()) RETURNING *`,
-      [dealerId, userId, full_name, company_name, email, phone, country, logoUrl, referredBy]
+       (user_id, full_name, company_name, email, phone, country, company_logo, status, referred_by, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,'verified',$7,NOW()) RETURNING *`,
+      [userId, full_name, company_name, email, phone, country, logoUrl, referredBy]
     );
 
     await sendEmail(
@@ -619,14 +625,52 @@ const deleteDealer = async (req, res) => {
 ====================================================== */
 const verifyDealer = async (req, res) => {
   try {
-    const id = req.params.id;
-    const result = await query(
-      `UPDATE dealers SET verified = true, status = 'verified', verified_at = NOW() WHERE id = $1 RETURNING *`,
+    const id = String(req.params.id ?? "").trim();
+
+    if (!id) {
+      return res.status(400).json({ error: "Dealer id is required" });
+    }
+
+    const lookup = await query(
+      `SELECT id FROM dealers WHERE CAST(id AS TEXT) = $1 LIMIT 1`,
       [id]
+    );
+
+    if (!lookup.rows.length) {
+      return res.status(404).json({ error: "Dealer not found" });
+    }
+
+    const dealerId = lookup.rows[0].id;
+
+    const result = await query(
+      `UPDATE dealers
+       SET status = 'verified', validation_message = 'Approved by admin'
+       WHERE id = $1
+       RETURNING *`,
+      [dealerId]
     );
 
     if (!result.rows.length) {
       return res.status(404).json({ error: "Dealer not found" });
+    }
+
+    const dealerRow = result.rows[0];
+    const userResult = await query(
+      `SELECT id, is_on_trial, trial_end FROM users WHERE id = $1`,
+      [dealerRow.user_id]
+    );
+
+    if (userResult.rows.length > 0) {
+      const userRow = userResult.rows[0];
+      const now = new Date();
+      const trialEnd = userRow.trial_end ? new Date(userRow.trial_end) : new Date(now);
+      const activeTrialEnd = trialEnd > now ? trialEnd : new Date(now);
+      activeTrialEnd.setDate(activeTrialEnd.getDate() + 7);
+
+      await query(
+        `UPDATE users SET is_on_trial = true, trial_end = $1, trial_used = true WHERE id = $2`,
+        [activeTrialEnd.toISOString(), dealerRow.user_id]
+      );
     }
 
     res.json({ message: "✅ Dealer verified successfully", dealer: result.rows[0] });
@@ -652,6 +696,10 @@ const extendDealerAccess = async (req, res) => {
       return res.status(400).json({ error: "extraDays or extraListings must be provided" });
     }
 
+    const maxGraceDays = 366;
+    const safeExtraDays = typeof extraDays === "number" ? Math.min(Math.max(extraDays, 0), maxGraceDays) : 0;
+    const safeExtraListings = typeof extraListings === "number" ? Math.max(extraListings, 0) : 0;
+
     const dealerResult = await query(`SELECT id, user_id FROM dealers WHERE id = $1`, [dealerId]);
     if (!dealerResult.rows.length) {
       return res.status(404).json({ error: "Dealer not found" });
@@ -660,38 +708,36 @@ const extendDealerAccess = async (req, res) => {
     const dealer = dealerResult.rows[0];
     const now = new Date();
     const existingSub = await query(
-      `SELECT * FROM subscriptions WHERE dealer_id = $1 ORDER BY end_date DESC LIMIT 1`,
+      `SELECT * FROM dealer_subscriptions WHERE dealer_id = $1 ORDER BY end_date DESC LIMIT 1`,
       [dealerId]
     );
 
     let endDate = now;
-    let listingsAllowed = extraListings ?? 0;
-    let listingsUsed = 0;
+    let listingLimit = safeExtraListings;
     let result;
 
     if (existingSub.rows.length > 0) {
       const subscription = existingSub.rows[0];
       const currentEndDate = subscription.end_date ? new Date(subscription.end_date) : now;
       endDate = currentEndDate > now ? currentEndDate : now;
-      listingsAllowed = (subscription.listings_allowed ?? 0) + (extraListings ?? 0);
-      listingsUsed = subscription.listings_used ?? 0;
+      listingLimit = (Number(subscription.listing_limit) || 0) + safeExtraListings;
 
-      if (typeof extraDays === "number" && extraDays > 0) {
-        endDate.setDate(endDate.getDate() + extraDays);
+      if (safeExtraDays > 0) {
+        endDate.setDate(endDate.getDate() + safeExtraDays);
       }
 
       result = await query(
-        `UPDATE subscriptions
+        `UPDATE dealer_subscriptions
          SET end_date = $1,
-             listings_allowed = $2,
-             active = true
+             listing_limit = $2,
+             status = 'active'
          WHERE id = $3
          RETURNING *`,
-        [endDate.toISOString(), listingsAllowed, subscription.id]
+        [endDate.toISOString(), listingLimit, subscription.id]
       );
     } else {
-      if (typeof extraDays === "number" && extraDays > 0) {
-        endDate.setDate(endDate.getDate() + extraDays);
+      if (safeExtraDays > 0) {
+        endDate.setDate(endDate.getDate() + safeExtraDays);
       }
 
       if (endDate <= now) {
@@ -700,24 +746,24 @@ const extendDealerAccess = async (req, res) => {
       }
 
       result = await query(
-        `INSERT INTO subscriptions
-         (dealer_id, plan_name, listings_allowed, listings_used, start_date, end_date, active)
-         VALUES ($1, 'admin-extension', $2, $3, $4, $5, true)
+        `INSERT INTO dealer_subscriptions
+         (dealer_id, plan_name, price, listing_limit, start_date, end_date, status)
+         VALUES ($1, 'admin-extension', 0, $2, $3, $4, 'active')
          RETURNING *`,
-        [dealerId, listingsAllowed, listingsUsed, now.toISOString(), endDate.toISOString()]
+        [dealerId, listingLimit, now.toISOString(), endDate.toISOString()]
       );
     }
 
-    if (typeof extraDays === "number" && extraDays > 0) {
-      const userResult = await query(`SELECT trial_end FROM users WHERE id = $1`, [dealer.user_id]);
+    if (safeExtraDays > 0) {
+      const userResult = await query(`SELECT trial_end, is_on_trial FROM users WHERE id = $1`, [dealer.user_id]);
       if (userResult.rows.length > 0) {
         const trialRow = userResult.rows[0];
         const currentTrialEnd = trialRow.trial_end ? new Date(trialRow.trial_end) : now;
         const newTrialEnd = new Date(currentTrialEnd > now ? currentTrialEnd : now);
-        newTrialEnd.setDate(newTrialEnd.getDate() + extraDays);
+        newTrialEnd.setDate(newTrialEnd.getDate() + safeExtraDays);
 
         await query(
-          `UPDATE users SET trial_end = $1, trial_used = true WHERE id = $2`,
+          `UPDATE users SET is_on_trial = true, trial_end = $1, trial_used = true WHERE id = $2`,
           [newTrialEnd.toISOString(), dealer.user_id]
         );
       }

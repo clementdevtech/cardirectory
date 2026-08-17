@@ -18,6 +18,35 @@ const GOOGLE_REDIRECT_URI =
     ? "https://cardirectory.onrender.com/api/auth/google-callback"
     : "http://localhost:4000/api/auth/google-callback");
 
+const getAuthCookieOptions = (req = {}, extra = {}) => {
+  const origin = req.headers?.origin || "";
+  const forwardedProto = req.headers?.["x-forwarded-proto"];
+  const host = req.headers?.host || "";
+  const isLocalhost = /localhost|127\.0\.0\.1|\[::1\]/i.test(`${origin} ${host}`);
+  const isHttps =
+    process.env.NODE_ENV === "production" ||
+    forwardedProto === "https" ||
+    req.secure === true ||
+    /^https:/i.test(origin);
+
+  const effectiveSecure = isHttps && !isLocalhost;
+
+  return {
+    httpOnly: true,
+    sameSite: effectiveSecure ? "none" : "lax",
+    secure: effectiveSecure,
+    path: "/",
+    ...extra,
+  };
+};
+
+const logAuthEvent = (event, details = {}) => {
+  /*console.log(`[auth:${event}]`, JSON.stringify({
+    timestamp: new Date().toISOString(),
+    ...details,
+  }));*/
+};
+
 /* ======================================================
    📌 CREATE & SEND VERIFICATION EMAIL
 ====================================================== */
@@ -92,6 +121,11 @@ const registerUser = async (req, res) => {
 const loginUser = async (req, res) => {
   try {
     const { email, password } = req.body;
+    logAuthEvent("login-request", {
+      email,
+      origin: req.headers?.origin || null,
+      userAgent: req.headers?.["user-agent"]?.slice(0, 120) || null,
+    });
 
     if (!email || !password)
       return res.status(400).json({ success: false, error: "Email and password required." });
@@ -136,12 +170,24 @@ const loginUser = async (req, res) => {
       { expiresIn: "7d" }
     );
 
-    res.cookie("auth_token", sessionToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: process.env.NODE_ENV === "production" ? "none" : "strict",
+    const cookieOptions = getAuthCookieOptions(req, {
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
+
+    logAuthEvent("login-success", {
+      userId: user.id,
+      email: user.email,
+      role: user.role,
+      cookie: {
+        httpOnly: cookieOptions.httpOnly,
+        secure: cookieOptions.secure,
+        sameSite: cookieOptions.sameSite,
+        path: cookieOptions.path,
+      },
+      expiresIn: "7d",
+    });
+
+    res.cookie("auth_token", sessionToken, cookieOptions);
 
     return res.status(200).json({
       success: true,
@@ -251,12 +297,13 @@ const googleCallback = async (req, res) => {
       { expiresIn: "7d" }
     );
 
-    res.cookie("auth_token", sessionToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: process.env.NODE_ENV === "production" ? "none" : "strict",
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-    });
+    res.cookie(
+      "auth_token",
+      sessionToken,
+      getAuthCookieOptions(req, {
+        maxAge: 7 * 24 * 60 * 60 * 1000,
+      })
+    );
 
     return res.redirect(`${FRONTEND_URL}/?google_login=success`);
   } catch (err) {
@@ -340,12 +387,13 @@ const googleExchange = async (req, res) => {
       { expiresIn: "7d" }
     );
 
-    res.cookie("auth_token", sessionToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: process.env.NODE_ENV === "production" ? "none" : "strict",
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-    });
+    res.cookie(
+      "auth_token",
+      sessionToken,
+      getAuthCookieOptions(req, {
+        maxAge: 7 * 24 * 60 * 60 * 1000,
+      })
+    );
 
     return res.json({ success: true, token: sessionToken, user });
   } catch (err) {
@@ -357,13 +405,9 @@ const googleExchange = async (req, res) => {
 /* ======================================================
    ✅ LOGOUT
 ====================================================== */
-const logoutUser = async (_, res) => {
+const logoutUser = async (req, res) => {
   try {
-    res.clearCookie("auth_token", {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: process.env.NODE_ENV === "production" ? "none" : "strict",
-    });
+    res.clearCookie("auth_token", getAuthCookieOptions(req));
     return res.status(200).json({ success: true, message: "Logged out successfully" });
   } catch {
     return res.status(500).json({ success: false, error: "Internal Server Error" });
@@ -514,6 +558,13 @@ const getMe = async (req, res) => {
     const bearer = req.headers.authorization?.split(" ")[1];
     const token = bearer || req.cookies?.auth_token;
 
+    logAuthEvent("me-check", {
+      hasBearer: Boolean(bearer),
+      hasCookie: Boolean(req.cookies?.auth_token),
+      origin: req.headers?.origin || null,
+      userAgent: req.headers?.["user-agent"]?.slice(0, 120) || null,
+    });
+
     if (!token)
       return res.status(401).json({ success: false, error: "Unauthorized" });
 
@@ -549,6 +600,12 @@ const refreshAuthSession = async (req, res) => {
     const bearer = req.headers.authorization?.split(" ")[1];
     const token = bearer || req.cookies?.auth_token;
 
+    logAuthEvent("refresh-session-attempt", {
+      hasBearer: Boolean(bearer),
+      hasCookie: Boolean(req.cookies?.auth_token),
+      origin: req.headers?.origin || null,
+    });
+
     if (!token) {
       return res.status(401).json({ success: false, error: "Unauthorized" });
     }
@@ -570,12 +627,22 @@ const refreshAuthSession = async (req, res) => {
       { expiresIn: "7d" }
     );
 
-    res.cookie("auth_token", refreshedToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: process.env.NODE_ENV === "production" ? "none" : "strict",
+    const refreshedCookieOptions = getAuthCookieOptions(req, {
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
+
+    logAuthEvent("refresh-session-success", {
+      userId: user.id,
+      email: user.email,
+      role: user.role,
+      cookie: {
+        httpOnly: refreshedCookieOptions.httpOnly,
+        secure: refreshedCookieOptions.secure,
+        sameSite: refreshedCookieOptions.sameSite,
+      },
+    });
+
+    res.cookie("auth_token", refreshedToken, refreshedCookieOptions);
 
     return res.json({
       success: true,

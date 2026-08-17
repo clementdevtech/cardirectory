@@ -77,21 +77,87 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [isLoading, setIsLoading] = useState(true);
 
   // -------------------------------------------------------------------------
-  // Fetch user from backend (JWT) - Memoized to prevent infinite loops
+  // Fetch user from backend (JWT or httpOnly cookie) - Memoized to prevent loops
   // -------------------------------------------------------------------------
+  const logFrontendAuth = (event: string, details: Record<string, unknown> = {}) => {
+    console.log(`[frontend:${event}]`, {
+      timestamp: new Date().toISOString(),
+      ...details,
+    });
+  };
+
   const fetchUser = useCallback(async (): Promise<void> => {
     try {
       const token = localStorage.getItem("auth_token");
+      logFrontendAuth("fetch-user-start", {
+        hasLocalToken: Boolean(token),
+        hasCookie: document.cookie.split(";").some((cookie) => cookie.trim().startsWith("auth_token=")),
+        origin: window.location.origin,
+      });
 
-      const res = await fetch(`${API_BASE_URL}/auth/me`, {
+      let res = await fetch(`${API_BASE_URL}/auth/me`, {
         headers: token ? { Authorization: `Bearer ${token}` } : undefined,
         credentials: "include",
       });
 
+      if (!res.ok && (res.status === 401 || res.status === 403)) {
+        logFrontendAuth("fetch-user-unauthorized", {
+          status: res.status,
+          hasLocalToken: Boolean(token),
+        });
+
+        const refreshRes = await fetch(`${API_BASE_URL}/auth/refresh-session`, {
+          method: "POST",
+          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+          credentials: "include",
+        });
+
+        if (refreshRes.ok) {
+          const refreshed = await refreshRes.json();
+          if (refreshed?.token) {
+            localStorage.setItem("auth_token", refreshed.token);
+            logFrontendAuth("refresh-session-success", {
+              tokenLength: refreshed.token.length,
+            });
+          }
+
+          if (refreshed?.user) {
+            const nextUser = normalizeAuthUser(refreshed.user);
+            setUser((currentUser) => {
+              if (
+                currentUser?.id === nextUser?.id &&
+                currentUser?.role === nextUser?.role &&
+                currentUser?.full_name === nextUser?.full_name &&
+                currentUser?.is_verified === nextUser?.is_verified
+              ) {
+                return currentUser;
+              }
+
+              return nextUser;
+            });
+            return;
+          }
+        }
+
+        throw new Error("Session expired or unauthorized");
+      }
+
       if (!res.ok) throw new Error("Failed to fetch user info");
 
-      const data: { user: AuthUser } = await res.json();
+      const data: { user?: AuthUser; token?: string } = await res.json();
+      if (data?.token) {
+        localStorage.setItem("auth_token", data.token);
+        logFrontendAuth("me-token-saved", {
+          tokenLength: data.token.length,
+        });
+      }
+
       const nextUser = normalizeAuthUser(data?.user);
+      logFrontendAuth("fetch-user-success", {
+        userId: nextUser?.id,
+        role: nextUser?.role,
+        email: nextUser?.email,
+      });
       setUser((currentUser) => {
         if (
           currentUser?.id === nextUser?.id &&
@@ -106,7 +172,22 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       });
     } catch (err) {
       console.error("❌ Failed to fetch user:", err);
-      setUser(null);
+      const hasStoredToken = Boolean(localStorage.getItem("auth_token"));
+      const hasCookieSession = document.cookie
+        .split(";")
+        .some((cookie) => cookie.trim().startsWith("auth_token="));
+
+      logFrontendAuth("fetch-user-failed", {
+        error: err instanceof Error ? err.message : String(err),
+        hasStoredToken,
+        hasCookieSession,
+        cookies: document.cookie,
+      });
+
+      if (!hasStoredToken && !hasCookieSession) {
+        setUser(null);
+        setSession(null);
+      }
     }
   }, []);
 
@@ -114,38 +195,30 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     await fetchUser();
   }, [fetchUser]);
 
+  const clearAuthCaches = useCallback(async (): Promise<void> => {
+    try {
+      const cacheNames = await caches.keys();
+      await Promise.all(cacheNames.map((cacheName) => caches.delete(cacheName)));
+    } catch (error) {
+      console.warn("Failed to clear browser caches during auth logout:", error);
+    }
+  }, []);
+
   // -------------------------------------------------------------------------
   // Initialize Authentication
   // -------------------------------------------------------------------------
   useEffect(() => {
     const initializeAuth = async () => {
       try {
-        const token = localStorage.getItem("auth_token");
+        await fetchUser();
 
-        if (token) {
-          // If we have a token in localStorage, fetch the user
-          await fetchUser();
-        } else {
-          // No token in localStorage, but try backend (might have a cookie)
-          try {
-            await fetchUser();
-          } catch {
-            // Backend fetch failed, try Supabase
-            const { data } = await supabase.auth.getSession();
-            setSession(data.session);
-            setUser((prevUser) => {
-              if (!data.session?.user) return prevUser;
-              return normalizeAuthUser({
-                ...data.session.user,
-                ...(prevUser ? {
-                  role: prevUser.role,
-                  full_name: prevUser.full_name,
-                  is_verified: prevUser.is_verified,
-                } : {}),
-              });
-            });
-          }
+        const { data } = await supabase.auth.getSession();
+        if (data.session) {
+          setSession(data.session);
         }
+      } catch {
+        setUser(null);
+        setSession(null);
       } finally {
         setIsLoading(false);
       }
@@ -269,12 +342,25 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         return { success: false, status: res.status, error: errorMessage };
       }
 
-      if (data.token) localStorage.setItem("auth_token", data.token);
+      if (data.token) {
+        localStorage.setItem("auth_token", data.token);
+        logFrontendAuth("login-success", {
+          tokenLength: data.token.length,
+          email,
+          hasCookie: document.cookie.split(";").some((cookie) => cookie.trim().startsWith("auth_token=")),
+        });
+      } else {
+        logFrontendAuth("login-success-no-token", { email });
+      }
 
-      setUser(normalizeAuthUser(data.user));
+      const nextUser = normalizeAuthUser(data.user);
+      setUser(nextUser);
       setSession(data.session ?? null);
 
+      await fetchUser();
+
       toast.success("Login successful!");
+
       return { success: true, status: res.status, message: "Login successful!" };
     } catch (err) {
       const message =
@@ -294,12 +380,19 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       console.warn("Supabase signOut failed:", err);
     }
 
-    await fetch(`${API_BASE_URL}/auth/logout`, {
-      method: "POST",
-      credentials: "include",
-    });
+    try {
+      await fetch(`${API_BASE_URL}/auth/logout`, {
+        method: "POST",
+        credentials: "include",
+      });
+    } catch (err) {
+      console.warn("Backend logout failed:", err);
+    }
 
     localStorage.removeItem("auth_token");
+    sessionStorage.removeItem("auth_token");
+    localStorage.removeItem("token");
+    await clearAuthCaches();
     setUser(null);
     setSession(null);
 

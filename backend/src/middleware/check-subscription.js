@@ -14,13 +14,15 @@ async function requireActiveSubscription(req, res, next) {
     return res.status(403).json({ error: "No active subscription" });
   }
 
-  if (sub.listings_used >= sub.listings_allowed) {
+  const listingLimit = Number(sub.listing_limit ?? 0);
+  const currentListings = Number(sub.current_listings ?? 0);
+
+  if (listingLimit > 0 && currentListings >= listingLimit) {
     return res.status(403).json({
       error: "Listings limit reached. Please upgrade.",
     });
   }
 
-  // attach subscription to request
   req.subscription = sub;
 
   next();

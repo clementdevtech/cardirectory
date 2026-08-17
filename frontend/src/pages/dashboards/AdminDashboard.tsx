@@ -44,6 +44,7 @@ import { useCarForm } from "@/hooks/useCarForm";
 import { useCarUploads } from "@/hooks/useCarUploads";
 import { useLocationSearch } from "@/hooks/useLocationSearch";
 import { useAuth } from "@/hooks/useAuth";
+import { supabase } from "@/integrations/supabase/client";
 
 type Car = {
   id: number;
@@ -67,6 +68,7 @@ type Car = {
 
 type Dealer = {
   id: string;
+  user_id?: string;
   full_name: string;
   company_name?: string;
   email: string;
@@ -107,6 +109,7 @@ const AdminDashboard: React.FC = () => {
 
   const [cars, setCars] = useState<Car[]>([]);
   const [dealers, setDealers] = useState<Dealer[]>([]);
+  const [dealerSubscriptions, setDealerSubscriptions] = useState<Array<{ id: string; dealer_id: string; status: string; end_date?: string; listing_limit?: number; plan_name?: string; price?: number }>>([]);
   const [users, setUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [savingUser, setSavingUser] = useState<string | null>(null);
@@ -154,6 +157,59 @@ const AdminDashboard: React.FC = () => {
     { id: "dealers", label: "Dealers", description: "Dealer accounts", icon: UserPlus },
     { id: "users", label: "Users", description: "Roles and commissions", icon: Users },
   ];
+
+  const getDealerSubscriptionSummary = (dealer: Dealer) => {
+    const sub = dealerSubscriptions.find((item) => String(item.dealer_id) === String(dealer.id));
+    const userRecord = users.find((item) => String(item.id) === String(dealer.user_id));
+    const now = new Date();
+
+    if (sub?.end_date) {
+      const endDate = new Date(sub.end_date);
+      const diffMs = endDate.getTime() - now.getTime();
+      const remainingDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+
+      if (sub.status === "expired" || diffMs <= 0) {
+        return { status: "expired", remainingDays: 0, text: "Expired" };
+      }
+
+      if (sub.status === "active" && remainingDays <= 7) {
+        return { status: "expiring", remainingDays, text: `${remainingDays} day${remainingDays === 1 ? "" : "s"} left` };
+      }
+
+      return { status: "active", remainingDays, text: `${remainingDays} day${remainingDays === 1 ? "" : "s"} left` };
+    }
+
+    if (userRecord?.trial_end) {
+      const trialEnd = new Date(userRecord.trial_end);
+      const trialDiffMs = trialEnd.getTime() - now.getTime();
+      const remainingDays = Math.ceil(trialDiffMs / (1000 * 60 * 60 * 24));
+
+      if (userRecord.is_on_trial && trialDiffMs > 0) {
+        return { status: "trial-active", remainingDays, text: `Trial active` };
+      }
+
+      return { status: "trial-expired", remainingDays: 0, text: "Trial expired" };
+    }
+
+    return { status: "no-subscription", remainingDays: null, text: "No subscription" };
+  };
+
+  const dealerSummaryCounts = useMemo(() => {
+    const count = { active: 0, expiring: 0, expired: 0, total: dealers.length };
+
+    dealers.forEach((dealer) => {
+      const summary = getDealerSubscriptionSummary(dealer);
+      if (summary.status === "active" || summary.status === "trial-active") {
+        count.active += 1;
+      } else if (summary.status === "expiring") {
+        count.expiring += 1;
+      } else if (summary.status === "expired" || summary.status === "trial-expired") {
+        count.expired += 1;
+      }
+    });
+
+    return count;
+  }, [dealers, dealerSubscriptions, users]);
 
   const shellClass = isDarkMode ? "bg-slate-950 text-slate-100" : "bg-slate-50 text-slate-900";
   const panelClass = isDarkMode ? "border-slate-800 bg-slate-900 text-slate-100" : "border-slate-200 bg-white text-slate-900";
@@ -422,17 +478,20 @@ const AdminDashboard: React.FC = () => {
   // fetch data
   const fetchDashboardData = async () => {
     try {
-      const [carsRes, dealersRes, usersRes] = await Promise.all([
+      const [carsRes, dealersRes, usersRes, subscriptionsRes] = await Promise.all([
         axiosInstance.get<Car[]>('/cars'),
         axiosInstance.get<Dealer[]>('/dealers'),
         axiosInstance.get('/users'),
+        supabase.from('dealer_subscriptions').select('*').order('end_date', { ascending: false }),
       ]);
       const carsData = carsRes.data || [];
       const dealersData = dealersRes.data || [];
       const usersData = usersRes.data || [];
+      const subscriptionsData = subscriptionsRes.data || [];
 
       setCars(carsData);
       setDealers(dealersData);
+      setDealerSubscriptions(subscriptionsData as any);
       setUsers(usersData);
 
       const totalListings = carsData.length;
@@ -683,7 +742,7 @@ const AdminDashboard: React.FC = () => {
     try {
       await axiosInstance.post(`/dealers/${id}/verify`);
       toast({ title: "Dealer verified", description: "Dealer account has been verified successfully." });
-      fetchDashboardData();
+      await fetchDashboardData();
     } catch (err: any) {
       toast({
         title: "Verification failed",
@@ -711,15 +770,24 @@ const AdminDashboard: React.FC = () => {
       return;
     }
 
-    if (extraDays === 0 && extraListings === 0) {
+    const maxGraceDays = 366;
+    const normalizedDays = Math.min(extraDays, maxGraceDays);
+    if (normalizedDays !== extraDays) {
+      toast({
+        title: "Grace days capped",
+        description: `Grace period was limited to ${maxGraceDays} days.`,
+      });
+    }
+
+    if (normalizedDays === 0 && extraListings === 0) {
       toast({ title: "No changes made", description: "You must add grace days or listing allowance." });
       return;
     }
 
     try {
-      await axiosInstance.patch(`/dealers/${id}/extend`, { extraDays, extraListings });
+      await axiosInstance.patch(`/dealers/${id}/extend`, { extraDays: normalizedDays, extraListings });
       toast({ title: "Dealer extended", description: "Grace days and listing allowance were updated." });
-      fetchDashboardData();
+      await fetchDashboardData();
     } catch (err: any) {
       toast({
         title: "Update failed",
@@ -1268,6 +1336,19 @@ const AdminDashboard: React.FC = () => {
                         </Button>
                       </div>
                     </div>
+                    <div className="mb-4 grid gap-3 lg:grid-cols-4">
+                      {[
+                        { label: "Active", value: dealerSummaryCounts.active, tone: "bg-emerald-500/10 text-emerald-700" },
+                        { label: "Expiring soon", value: dealerSummaryCounts.expiring, tone: "bg-amber-500/10 text-amber-700" },
+                        { label: "Expired", value: dealerSummaryCounts.expired, tone: "bg-red-500/10 text-red-700" },
+                        { label: "Total", value: `${dealerSummaryCounts.total}`, tone: "bg-slate-500/10 text-slate-700" },
+                      ].map((card) => (
+                        <div key={card.label} className={`rounded-xl border p-3 ${card.tone}`}>
+                          <p className="text-xs uppercase tracking-[0.2em] opacity-75">{card.label}</p>
+                          <p className="mt-2 text-2xl font-bold">{card.value}</p>
+                        </div>
+                      ))}
+                    </div>
                     <div className="mb-4 flex flex-wrap gap-2">
                       {(["all", "new"] as const).map((filter) => (
                         <button
@@ -1295,40 +1376,51 @@ const AdminDashboard: React.FC = () => {
                         <p>No dealers found.</p>
                       ) : (
                         <>
-                          {pagedDealers.map((d) => (
-                            <div key={d.id} className={`flex flex-col justify-between gap-3 rounded-lg border p-3 md:flex-row md:items-center ${isDarkMode ? "border-slate-700 bg-slate-800/60" : "border-slate-200 bg-white"}`}>
-                              <div className="flex items-center gap-3">
-                                {d.company_logo ? (
-                                  <img src={d.company_logo} alt="logo" className="h-10 w-10 rounded object-cover" />
-                                ) : (
-                                  <div className="h-10 w-10 rounded bg-gray-200" />
-                                )}
-                                <div>
-                                  <div className="flex items-center gap-2">
-                                    <p className="font-semibold">{d.full_name}</p>
-                                    {d.created_at && new Date(d.created_at).getTime() > Date.now() - 7 * 24 * 60 * 60 * 1000 && <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-medium text-emerald-600">New</span>}
+                          {pagedDealers.map((d) => {
+                            const summary = getDealerSubscriptionSummary(d);
+                            return (
+                              <div key={d.id} className={`flex flex-col justify-between gap-3 rounded-lg border p-3 md:flex-row md:items-center ${isDarkMode ? "border-slate-700 bg-slate-800/60" : "border-slate-200 bg-white"}`}>
+                                <div className="flex items-center gap-3">
+                                  {d.company_logo ? (
+                                    <img src={d.company_logo} alt="logo" className="h-10 w-10 rounded object-cover" />
+                                  ) : (
+                                    <div className="h-10 w-10 rounded bg-gray-200" />
+                                  )}
+                                  <div>
+                                    <div className="flex items-center gap-2">
+                                      <p className="font-semibold">{d.full_name}</p>
+                                      {d.created_at && new Date(d.created_at).getTime() > Date.now() - 7 * 24 * 60 * 60 * 1000 && <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-medium text-emerald-600">New</span>}
+                                    </div>
+                                    <p className="text-sm text-gray-500">{d.email}</p>
+                                    <div className="mt-1 flex items-center gap-2 text-xs">
+                                      <span className={`rounded-full px-2 py-0.5 ${summary.status === "expired" || summary.status === "trial-expired" ? "bg-red-100 text-red-700" : summary.status === "expiring" ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700"}`}>
+                                        {summary.text}
+                                      </span>
+                                      {summary.remainingDays !== null && summary.status !== "expired" && summary.status !== "trial-expired" && (
+                                        <span className="text-slate-500">{summary.remainingDays}d left</span>
+                                      )}
+                                    </div>
                                   </div>
-                                  <p className="text-sm text-gray-500">{d.email}</p>
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                  <Button size="sm" variant="outline" onClick={() => handleCreateForDealer(d)}>
+                                    <CarIcon className="mr-1 h-4 w-4" /> Create for dealer
+                                  </Button>
+                                  <Button size="sm" variant="secondary" onClick={() => handleExtendDealer(d.id)}>
+                                    <Star className="mr-1 h-4 w-4" /> Extend
+                                  </Button>
+                                  {d.status !== "verified" && (
+                                    <Button size="sm" className="bg-emerald-500 text-white hover:bg-emerald-600" onClick={() => handleVerifyDealer(d.id)}>
+                                      <CheckCircle className="mr-1 h-4 w-4" /> Verify
+                                    </Button>
+                                  )}
+                                  <Button size="sm" variant="destructive" onClick={() => handleDeleteDealer(d.id)}>
+                                    <UserX className="mr-1 h-4 w-4" /> Remove
+                                  </Button>
                                 </div>
                               </div>
-                              <div className="flex flex-wrap gap-2">
-                                <Button size="sm" variant="outline" onClick={() => handleCreateForDealer(d)}>
-                                  <CarIcon className="mr-1 h-4 w-4" /> Create for dealer
-                                </Button>
-                                <Button size="sm" variant="secondary" onClick={() => handleExtendDealer(d.id)}>
-                                  <Star className="mr-1 h-4 w-4" /> Extend
-                                </Button>
-                                {d.status !== "verified" && (
-                                  <Button size="sm" className="bg-emerald-500 text-white hover:bg-emerald-600" onClick={() => handleVerifyDealer(d.id)}>
-                                    <CheckCircle className="mr-1 h-4 w-4" /> Verify
-                                  </Button>
-                                )}
-                                <Button size="sm" variant="destructive" onClick={() => handleDeleteDealer(d.id)}>
-                                  <UserX className="mr-1 h-4 w-4" /> Remove
-                                </Button>
-                              </div>
-                            </div>
-                          ))}
+                            );
+                          })}
                           <div className="mt-4 flex items-center justify-between">
                             <Button variant="outline" size="sm" onClick={() => setDealersPage((page) => Math.max(1, page - 1))} disabled={dealersPage === 1}>
                               <ChevronLeft className="mr-1 h-4 w-4" /> Prev

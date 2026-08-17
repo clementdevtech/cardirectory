@@ -52,7 +52,7 @@ app.use(cookieParser());
 
 if (process.env.NODE_ENV !== "production") {
   app.use((req, res, next) => {
-    console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl}`);
+    //console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl}`);
     next();
   });
 }
@@ -91,15 +91,15 @@ const PORT = Number(process.env.PORT) || 4000;
 const HOST = "0.0.0.0";
 
 app.listen(PORT, HOST, () => {
-  console.log(`🚀 Server running on http://${HOST}:${PORT}`);
+  //console.log(`🚀 Server running on http://${HOST}:${PORT}`);
 
   // 🕛 Nightly expiry job (auto-expire + grace period)
   startSubscriptionExpiryJob();
   ensureSalesCommissionSchema();
 
-  console.log("🕒 Cron jobs initialized");
+  //console.log("🕒 Cron jobs initialized");
   // Log OAuth config presence (do not print secrets)
   const googleClientId = process.env.GOOGLE_CLIENT_ID || process.env["google-clientid"];
   const googleRedirect = process.env.GOOGLE_REDIRECT_URI || (process.env.NODE_ENV === "production" ? "https://cardirectory.onrender.com/api/auth/google-callback" : "http://localhost:4000/api/auth/google-callback");
-  console.log(`Google OAuth configured: ${Boolean(googleClientId)}; redirect_uri: ${googleRedirect}`);
+  //console.log(`Google OAuth configured: ${Boolean(googleClientId)}; redirect_uri: ${googleRedirect}`);
 });

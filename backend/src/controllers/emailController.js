@@ -361,6 +361,43 @@ const sendTrialReminderEmail = async (email, trialEnd) => {
   }
 };
 
+/* DEALER WELCOME */
+const sendDealerWelcomeEmail = async (email, fullName, details = {}) => {
+  try {
+    const { planName = "Dealer", accessUrl = `${FRONTEND_URL}/dashboard`, accessLabel = "Go to Dashboard" } = details;
+    const greeting = fullName ? `Hello ${fullName},` : "Hello,";
+    const message = `${greeting}<br/><br/>Your ${planName} account has been created successfully. You can now start managing your listings and dealership profile.<br/><br/><b>Next step:</b> complete your profile and add your first vehicle.`;
+    const html = generateEmailTemplate("Your Dealer Account Is Ready", message, accessUrl, accessLabel);
+    await sendEmail(email, "🎉 Your Dealer Account Is Ready", html);
+    return {};
+  } catch (err) {
+    return { error: "Failed to send dealer welcome email." };
+  }
+};
+
+/* SUBSCRIPTION REMINDER */
+const sendSubscriptionExpiryEmail = async (email, planName, endDate) => {
+  try {
+    const message = `Your ${planName || "subscription"} will expire on <b>${endDate.toDateString()}</b>.<br/>Renew now to keep your listings live.`;
+    const html = generateEmailTemplate("Subscription Expiring Soon", message, `${FRONTEND_URL}/pricing`, "Renew Plan");
+    await sendEmail(email, "⚠️ Your Subscription Is Expiring Soon", html);
+    return {};
+  } catch (err) {
+    return { error: "Failed to send subscription expiry email." };
+  }
+};
+
+const sendSubscriptionExpiredEmail = async (email, planName) => {
+  try {
+    const message = `Your ${planName || "subscription"} has expired.<br/>Renew your plan to continue listing vehicles on CarDirectory.`;
+    const html = generateEmailTemplate("Subscription Expired", message, `${FRONTEND_URL}/pricing`, "Renew Now");
+    await sendEmail(email, "⛔ Your Subscription Has Expired", html);
+    return {};
+  } catch (err) {
+    return { error: "Failed to send expired subscription email." };
+  }
+};
+
 module.exports = {
   sendZohoMail,
   sendEmail,
@@ -371,4 +408,7 @@ module.exports = {
   generateEmailTemplate,
   sendTrialActivationEmail,
   sendTrialReminderEmail,
+  sendDealerWelcomeEmail,
+  sendSubscriptionExpiryEmail,
+  sendSubscriptionExpiredEmail,
 };

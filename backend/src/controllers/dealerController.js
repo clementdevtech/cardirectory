@@ -8,6 +8,45 @@ const getDealerId = async (userId) => {
   return rows[0]?.id || null;
 };
 
+const getDealerListingLimit = async (dealerId) => {
+  const { rows } = await query(
+    `SELECT d.id,
+            u.role,
+            u.trial_end,
+            u.trial_used,
+            s.listing_limit,
+            s.status AS sub_status,
+            (SELECT COUNT(*)::int FROM cars WHERE dealer_id = d.id) AS total_cars
+     FROM dealers d
+     LEFT JOIN users u ON u.id = d.user_id
+     LEFT JOIN LATERAL (
+       SELECT listing_limit, status
+       FROM dealer_subscriptions
+       WHERE dealer_id = d.id
+         AND status = 'active'
+         AND end_date > NOW()
+       ORDER BY end_date DESC
+       LIMIT 1
+     ) s ON true
+     WHERE d.id = $1
+     LIMIT 1`,
+    [dealerId]
+  );
+
+  const row = rows[0];
+  const trialActive = !!(row?.trial_end && new Date(row.trial_end) > new Date());
+  const freeTrialLimit = 2;
+  const paidLimit = Number(row?.listing_limit ?? 0);
+  const activeListingLimit = trialActive ? freeTrialLimit : paidLimit || freeTrialLimit;
+
+  return {
+    isFreeTrial: !!trialActive,
+    activeListingLimit,
+    currentCarCount: Number(row?.total_cars ?? 0),
+    hasActiveSubscription: !!row?.listing_limit,
+  };
+};
+
 const getDealerCars = async (req, res) => {
   try {
     const dealerId = await getDealerId(req.user.id);
@@ -119,6 +158,19 @@ const saveCarDraft = async (req, res) => {
       );
 
       return res.json(rows[0]);
+    }
+
+    const listingLimit = await getDealerListingLimit(dealerId);
+    if (listingLimit.isFreeTrial && listingLimit.currentCarCount >= 2) {
+      return res.status(403).json({
+        message: "Your free trial allows up to 2 listings. Upgrade to add more vehicles.",
+      });
+    }
+
+    if (!listingLimit.isFreeTrial && listingLimit.hasActiveSubscription && listingLimit.currentCarCount >= listingLimit.activeListingLimit) {
+      return res.status(403).json({
+        message: "Your listing limit has been reached. Please upgrade your plan.",
+      });
     }
 
     // CREATE NEW DRAFT

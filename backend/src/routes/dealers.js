@@ -6,6 +6,7 @@ const {
   setDealerVerified,
   validateDealer,
 } = require("../models/dealers");
+const { sendDealerWelcomeEmail } = require("../controllers/emailController");
 
 const router = express.Router();
 
@@ -14,6 +15,11 @@ router.post("/", async (req, res) => {
   try {
     const { name, email, phone, country } = req.body;
     const dealer = await createDealer({ name, email, phone, country });
+
+    if (dealer?.email) {
+      await sendDealerWelcomeEmail(dealer.email, name || "Dealer", { planName: "Dealer" });
+    }
+
     res.json({ success: true, dealer });
   } catch (err) {
     console.error("Create dealer error:", err);
