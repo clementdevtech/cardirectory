@@ -30,13 +30,13 @@ const DealerAnalytics = () => {
   }, []);
 
   return (
-    <Card className="p-6">
+    <Card className="p-4 sm:p-6">
       <h2 className="text-xl font-semibold mb-4">📊 Views per Car</h2>
 
       {data.length === 0 ? (
         <p className="text-sm text-muted-foreground">No views yet</p>
       ) : (
-        <ResponsiveContainer width="100%" height={300}>
+        <ResponsiveContainer width="100%" height={260}>
           <BarChart data={data}>
             <XAxis
               dataKey={(d) => `${d.make} ${d.model}`}

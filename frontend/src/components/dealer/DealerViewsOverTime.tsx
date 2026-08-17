@@ -27,10 +27,10 @@ export default function DealerViewsOverTime() {
   }, [mode]);
 
   return (
-    <Card className="p-6 mt-6">
-      <div className="flex justify-between mb-4">
+    <Card className="mt-6 p-4 sm:p-6">
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h3 className="font-semibold">📈 Views Over Time</h3>
-        <div className="space-x-2">
+        <div className="flex gap-2">
           <Button size="sm" onClick={() => setMode("daily")}>Daily</Button>
           <Button size="sm" variant="outline" onClick={() => setMode("monthly")}>
             Monthly
@@ -38,7 +38,7 @@ export default function DealerViewsOverTime() {
         </div>
       </div>
 
-      <ResponsiveContainer width="100%" height={300}>
+      <ResponsiveContainer width="100%" height={260}>
         <LineChart data={data}>
           <XAxis dataKey={mode === "daily" ? "day" : "month"} />
           <YAxis />

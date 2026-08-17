@@ -1,8 +1,9 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
+import { uploadToCloudinary } from "@/utils/cloudinaryUpload";
 
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -30,6 +31,8 @@ import {
   Bell,
   Lock,
   ArrowLeft,
+  Camera,
+  Loader2,
 } from "lucide-react";
 
 import {
@@ -90,6 +93,16 @@ interface Listing {
   gallery?: string[];
 }
 
+const dealerProfileFields = [
+  "full_name",
+  "company_name",
+  "phone",
+  "country",
+  "city",
+  "national_id",
+  "tax_id",
+] as const;
+
 /* ============================
    Component
 ============================ */
@@ -102,6 +115,8 @@ const DealerDashboard: React.FC = () => {
   const [dealer, setDealer] = useState<Dealer | null>(null);
   const [dealerLookupComplete, setDealerLookupComplete] = useState(false);
   const [dealerForm, setDealerForm] = useState<Partial<Dealer>>({});
+  const [isUploadingProfileImage, setIsUploadingProfileImage] = useState(false);
+  const profileImageInputRef = useRef<HTMLInputElement>(null);
   
   const [billing, setBilling] = useState<UserBilling | null>(null);
   const [dealerSub, setDealerSub] = useState<DealerSubscription | null>(null);
@@ -356,6 +371,30 @@ useEffect(() => {
     navigate("/dealer");
   };
 
+  const uploadProfileImage = async (file: File) => {
+    if (!file.type.startsWith("image/")) {
+      toast({ title: "Invalid file", description: "Please choose an image file.", variant: "destructive" });
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      toast({ title: "Image too large", description: "Profile images must be 5 MB or smaller.", variant: "destructive" });
+      return;
+    }
+
+    try {
+      setIsUploadingProfileImage(true);
+      const companyLogoUrl = await uploadToCloudinary(file, "image");
+      setDealerForm((current) => ({ ...current, company_logo: companyLogoUrl }));
+      toast({ title: "Photo uploaded", description: "Your new profile photo is ready to save." });
+    } catch (error) {
+      console.error("Profile image upload failed:", error);
+      toast({ title: "Upload failed", description: "We could not upload your profile photo. Please try again.", variant: "destructive" });
+    } finally {
+      setIsUploadingProfileImage(false);
+    }
+  };
+
   /* ============================
      Submit vehicle
   ============================ */
@@ -447,7 +486,7 @@ useEffect(() => {
     if (location.pathname === "/dealer/profile") {
       return (
         <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-red-50/40">
-          <main className="mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:px-8">
+          <main className="mx-auto max-w-5xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
             <button
               type="button"
               onClick={() => navigate("/dealer")}
@@ -473,11 +512,11 @@ useEffect(() => {
                 </div>
 
                 <div className="grid gap-5 md:grid-cols-2">
-                  {["full_name", "company_name", "phone", "country", "city", "national_id", "tax_id", "company_logo"].map((field) => (
-                    <div key={field} className={field === "company_logo" ? "md:col-span-2" : ""}>
+                  {dealerProfileFields.map((field) => (
+                    <div key={field}>
                       <Label className="capitalize text-gray-700">{field.replace("_", " ")}</Label>
                       <Input
-                        value={(dealerForm as any)[field] ?? ""}
+                        value={dealerForm[field] ?? ""}
                         onChange={(event) => setDealerForm({ ...dealerForm, [field]: event.target.value })}
                         className="mt-2 h-11 border-gray-200 bg-gray-50 focus:bg-white"
                       />
@@ -487,10 +526,47 @@ useEffect(() => {
                     <Label className="text-gray-700">Email</Label>
                     <Input value={dealer.email} disabled className="mt-2 h-11 bg-gray-100" />
                   </div>
+                  <div className="md:col-span-2">
+                    <Label className="text-gray-700">Profile picture</Label>
+                    <div className="mt-2 flex flex-col gap-4 rounded-xl border border-dashed border-gray-300 bg-gray-50 p-4 sm:flex-row sm:items-center">
+                      <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white ring-1 ring-gray-200">
+                        {dealerForm.company_logo ? (
+                          <img src={dealerForm.company_logo} alt="Dealer profile" className="h-full w-full object-cover" />
+                        ) : (
+                          <User className="h-8 w-8 text-gray-400" />
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="font-medium text-gray-900">Add a profile photo</p>
+                        <p className="mt-1 text-sm text-gray-500">PNG, JPG, or WEBP up to 5 MB. It will be uploaded securely to Cloudinary.</p>
+                        <input
+                          ref={profileImageInputRef}
+                          type="file"
+                          accept="image/png,image/jpeg,image/webp"
+                          className="hidden"
+                          onChange={(event) => {
+                            const file = event.target.files?.[0];
+                            if (file) uploadProfileImage(file);
+                            event.target.value = "";
+                          }}
+                        />
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="w-full sm:w-auto"
+                        disabled={isUploadingProfileImage}
+                        onClick={() => profileImageInputRef.current?.click()}
+                      >
+                        {isUploadingProfileImage ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Camera className="mr-2 h-4 w-4" />}
+                        {isUploadingProfileImage ? "Uploading..." : "Upload photo"}
+                      </Button>
+                    </div>
+                  </div>
                 </div>
 
-                <div className="mt-8 flex justify-end">
-                  <Button onClick={saveDealerProfile} className="bg-[#b44b3e] px-6 hover:bg-[#8B0000]">
+                <div className="mt-8 flex justify-stretch sm:justify-end">
+                  <Button onClick={saveDealerProfile} className="w-full bg-[#b44b3e] px-6 hover:bg-[#8B0000] sm:w-auto">
                     <RefreshCw className="mr-2 h-4 w-4" /> Save & Resubmit
                   </Button>
                 </div>
@@ -502,7 +578,7 @@ useEffect(() => {
     }
 
   return (
-    <div className="container mx-auto p-6">
+    <div className="container mx-auto max-w-7xl px-4 py-5 sm:px-6 sm:py-6">
       {/* Header */}
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between mb-4">
         <div className="flex flex-col gap-2">
@@ -515,17 +591,17 @@ useEffect(() => {
           )}
         </div>
 
-        <div className="flex gap-2">
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
           {canAddVehicle ? (
             <Dialog open={isCarDialogOpen} onOpenChange={setIsCarDialogOpen}>
               <DialogTrigger asChild>
-                <Button>
+                <Button className="w-full sm:w-auto">
                   <Plus className="mr-2 h-4 w-4" />
                   Add Vehicle
                 </Button>
               </DialogTrigger>
 
-              <DialogContent className="max-w-3xl">
+              <DialogContent className="max-h-[90dvh] w-[calc(100%-2rem)] max-w-3xl overflow-y-auto p-4 sm:p-6">
                 <DialogHeader>
                   <DialogTitle>{carForm.id ? "Edit Vehicle Listing" : "New Vehicle Listing"}</DialogTitle>
                 </DialogHeader>
@@ -549,6 +625,7 @@ useEffect(() => {
             <Button
               variant="outline"
               onClick={() => navigate("/pricing")}
+              className="w-full sm:w-auto"
             >
               <Lock className="mr-2 h-4 w-4" />
               {listingLimitReached
@@ -557,7 +634,7 @@ useEffect(() => {
             </Button>
           )}
 
-          <Button variant="outline" onClick={() => navigate("/dealer/profile")}>
+          <Button className="w-full sm:w-auto" variant="outline" onClick={() => navigate("/dealer/profile")}>
             <User className="mr-2 h-4 w-4" /> Profile
           </Button>
         </div>
@@ -566,12 +643,12 @@ useEffect(() => {
       {/* Billing Reminder */}
       {billingMessage && (
         <Card className="p-4 mb-4 border-l-4 border-yellow-500 bg-yellow-50">
-          <div className="flex justify-between items-center">
-            <div className="flex items-center gap-2">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-start gap-2 sm:items-center">
               <Bell className="h-4 w-4" />
               <span className="font-medium">{billingMessage}</span>
             </div>
-            <Button size="sm" onClick={() => navigate("/pricing")}>
+            <Button className="w-full sm:w-auto" size="sm" onClick={() => navigate("/pricing")}>
               Upgrade
             </Button>
           </div>
@@ -586,7 +663,7 @@ useEffect(() => {
 
       {/* Tabs */}
       <Tabs defaultValue="listings">
-        <TabsList>
+        <TabsList className="w-full justify-start overflow-x-auto sm:w-auto">
           <TabsTrigger value="listings">Listings</TabsTrigger>
           <TabsTrigger value="analytics" disabled={!isDealerVerified}>
             Analytics
@@ -596,19 +673,19 @@ useEffect(() => {
         <TabsContent value="listings">
           <div className="grid gap-4 mt-4">
             {listings.map((l) => (
-              <Card key={l.id} className="p-4 flex justify-between">
+              <Card key={l.id} className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <h3 className="font-semibold">
                     {l.make} {l.model}
                   </h3>
                   <Badge>{l.status}</Badge>
                 </div>
-                <div className="flex gap-2">
-                <Button variant="outline" onClick={() => editListing(l)}>
+                <div className="flex flex-col gap-2 min-[480px]:flex-row">
+                <Button className="w-full min-[480px]:w-auto" variant="outline" onClick={() => editListing(l)}>
                   <Edit className="mr-2" /> Edit
                 </Button>
                 {l.status !== "sold" && (
-                  <Button variant="outline" onClick={() => markListingSold(l)}>
+                  <Button className="w-full min-[480px]:w-auto" variant="outline" onClick={() => markListingSold(l)}>
                     Mark sold
                   </Button>
                 )}
