@@ -1,12 +1,39 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Search } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import axios from "axios";
+
+const API_BASE = (import.meta.env.VITE_BACKEND_URL as string) || "";
+const ADMIN_API = API_BASE.endsWith("/admin") ? API_BASE : `${API_BASE}/admin`;
 
 const HeroSection = () => {
   const [searchQuery, setSearchQuery] = useState("");
+  const [heroImage, setHeroImage] = useState("");
+  const [heroVideos, setHeroVideos] = useState<string[]>([]);
+  const [activeVideoIndex, setActiveVideoIndex] = useState(0);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    const loadHeroSettings = async () => {
+      try {
+        if (!API_BASE) return;
+        const response = await axios.get(`${ADMIN_API}/site-config`);
+        const settings = response.data || {};
+        setHeroImage(settings.hero_image_url || "");
+        setHeroVideos([settings.hero_video_url, settings.hero_video_url_2].filter(Boolean));
+      } catch (error) {
+        console.error("Failed to load hero settings", error);
+      }
+    };
+
+    loadHeroSettings();
+  }, []);
+
+  useEffect(() => {
+    setActiveVideoIndex(0);
+  }, [heroVideos.length]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -14,31 +41,58 @@ const HeroSection = () => {
   };
 
   return (
-    <section className="relative overflow-hidden">
-      {/* Gradient Background */}
-      <div className="absolute inset-0 gradient-hero opacity-10"></div>
-      
-      <div className="container relative mx-auto px-4 py-20 md:py-32">
-        <div className="max-w-4xl mx-auto text-center space-y-8">
-          {/* Main Heading */}
+    <section className="relative min-h-[50vh] w-full overflow-hidden">
+      <div className="absolute inset-0 bg-black/40" />
+
+      <div className="absolute inset-0">
+            {heroVideos.length > 0 ? (
+              <div className="relative h-full w-full overflow-hidden bg-black">
+                <video
+                  key={heroVideos[activeVideoIndex]}
+                  src={heroVideos[activeVideoIndex]}
+                  className="h-full w-full object-cover"
+                  autoPlay
+                  muted
+                  loop={heroVideos.length === 1}
+                  playsInline
+                  onEnded={() => setActiveVideoIndex((index) => (index + 1) % heroVideos.length)}
+                />
+            </div>
+            ) : heroImage ? (
+              <div className="relative h-full w-full overflow-hidden">
+                <img
+                  src={heroImage}
+                  alt="CarDirectory hero"
+                  className="h-full w-full object-cover"
+                />
+              </div>
+            ) : (
+              <div className="relative h-full w-full overflow-hidden bg-gradient-to-r from-primary/80 via-primary/40 to-accent/60" />
+            )}
+      </div>
+
+      <div className="absolute inset-0 bg-gradient-to-r from-black/75 via-black/45 to-black/20" />
+
+      <div className="container relative z-10 mx-auto flex min-h-[50vh] items-center px-4 py-12 md:py-16">
+        <div className="max-w-4xl space-y-8 text-white">
+
           <h1 className="font-heading text-4xl md:text-6xl font-bold leading-tight">
             Buy & Sell Cars in Kenya{" "}
             <span className="text-primary">Fast, Safe & Secure</span>
           </h1>
-          
-          <p className="text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto">
+
+          <p className="max-w-2xl text-lg text-white/85 md:text-xl">
             Browse thousands of verified cars from trusted dealers across Kenya. Find your perfect ride today.
           </p>
 
-          {/* Search Bar */}
           <form onSubmit={handleSearch} className="max-w-2xl mx-auto">
-            <div className="flex gap-2 p-2 bg-card rounded-lg shadow-card-hover border border-border">
+            <div className="flex gap-2 rounded-lg border border-white/30 bg-white/95 p-2 shadow-card-hover">
               <div className="flex-1 flex items-center gap-2 px-4">
                 <Search className="h-5 w-5 text-muted-foreground" />
                 <Input
                   type="text"
                   placeholder="Search by make, model, or location..."
-                  className="border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0"
+                  className="border-0 bg-transparent text-foreground focus-visible:ring-0 focus-visible:ring-offset-0"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                 />
@@ -49,35 +103,19 @@ const HeroSection = () => {
             </div>
           </form>
 
-          {/* Popular Searches */}
-          <div className="flex flex-wrap gap-2 justify-center">
-            <span className="text-sm text-muted-foreground">Popular:</span>
+          <div className="flex flex-wrap gap-2">
+            <span className="text-sm text-white/75">Popular:</span>
             {["Toyota", "Nissan", "Subaru", "Mazda"].map((brand) => (
               <button
                 key={brand}
                 onClick={() => navigate(`/cars?make=${brand}`)}
-                className="text-sm px-3 py-1 rounded-full bg-muted hover:bg-primary hover:text-primary-foreground transition-smooth"
+                className="rounded-full bg-white/15 px-3 py-1 text-sm text-white backdrop-blur-sm transition-smooth hover:bg-primary hover:text-primary-foreground"
               >
                 {brand}
               </button>
             ))}
           </div>
 
-          {/* Stats */}
-          <div className="grid grid-cols-3 gap-8 max-w-2xl mx-auto pt-8">
-            <div className="text-center">
-              <div className="text-3xl md:text-4xl font-heading font-bold text-primary">5000+</div>
-              <div className="text-sm text-muted-foreground mt-1">Active Listings</div>
-            </div>
-            <div className="text-center">
-              <div className="text-3xl md:text-4xl font-heading font-bold text-primary">500+</div>
-              <div className="text-sm text-muted-foreground mt-1">Verified Dealers</div>
-            </div>
-            <div className="text-center">
-              <div className="text-3xl md:text-4xl font-heading font-bold text-primary">10K+</div>
-              <div className="text-sm text-muted-foreground mt-1">Happy Buyers</div>
-            </div>
-          </div>
         </div>
       </div>
     </section>

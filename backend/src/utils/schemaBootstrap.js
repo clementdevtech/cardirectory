@@ -60,6 +60,28 @@ async function ensureSalesCommissionSchema() {
     `);
 
     await query(`
+      CREATE TABLE IF NOT EXISTS site_settings (
+        id INTEGER PRIMARY KEY DEFAULT 1,
+        hero_image_url TEXT,
+        hero_video_url TEXT,
+        hero_video_url_2 TEXT,
+        hero_video_duration_seconds INTEGER DEFAULT 8,
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+
+    await query(`
+      ALTER TABLE site_settings
+      ADD COLUMN IF NOT EXISTS hero_video_url_2 TEXT
+    `);
+
+    await query(`
+      INSERT INTO site_settings (id, hero_image_url, hero_video_url, hero_video_duration_seconds, updated_at)
+      VALUES (1, NULL, NULL, 8, NOW())
+      ON CONFLICT (id) DO NOTHING
+    `);
+
+    await query(`
       ALTER TABLE cars DROP CONSTRAINT IF EXISTS cars_status_check;
       ALTER TABLE cars
       ADD CONSTRAINT cars_status_check

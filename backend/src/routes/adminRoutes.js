@@ -16,12 +16,18 @@ const {
   getAdminUsers,
   updateUserRoleAndCommission,
   recordSalesCommission,
+  getSiteSettings,
+  updateSiteSettings,
 } = require("../controllers/adminController");
 const { createEmailCampaign } = require("../controllers/emailController");
 
 const { requireAuth, requireRole } = require("../middleware/requireAuth");
 
 const router = express.Router();
+
+//  Site Settings Routes
+router.get("/site-config", getSiteSettings);
+router.put("/site-config", requireAuth, requireRole("admin"), updateSiteSettings);
 
 //  Car Routes
 router.get("/cars", getAllCars);

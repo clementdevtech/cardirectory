@@ -4,8 +4,6 @@ const { sendEmail, generateEmailTemplate } = require("../controllers/emailContro
 const logger = require("../logger");
 
 cron.schedule("*/1 * * * *", async () => {
-  logger.info("🕒 Email campaign worker running...");
-
   try {
     const { rows: campaigns } = await query(
       `SELECT id, type, subject, body, recipients, batch_size, interval_minutes, current_batch, total_recipients, sent_count, failed_count
@@ -13,6 +11,10 @@ cron.schedule("*/1 * * * *", async () => {
        WHERE status = 'scheduled' AND next_run_at <= NOW()
        ORDER BY created_at ASC`
     );
+
+     if (!campaigns.length) return;
+
+     logger.info(`🕒 Email campaign worker processing ${campaigns.length} campaign(s)...`);
 
     for (const campaign of campaigns) {
       const recipients = Array.isArray(campaign.recipients) ? campaign.recipients : [];

@@ -45,6 +45,7 @@ import { useCarUploads } from "@/hooks/useCarUploads";
 import { useLocationSearch } from "@/hooks/useLocationSearch";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
+import { uploadToCloudinary } from "@/utils/cloudinaryUpload";
 
 type Car = {
   id: number;
@@ -121,6 +122,14 @@ const AdminDashboard: React.FC = () => {
     totalDealers: 0,
     totalRevenue: 0,
   });
+  const [siteConfig, setSiteConfig] = useState({
+    hero_image_url: "",
+    hero_video_url: "",
+    hero_video_url_2: "",
+  });
+  const [savingSiteConfig, setSavingSiteConfig] = useState(false);
+  const [uploadingHeroMedia, setUploadingHeroMedia] = useState<"image" | "video" | null>(null);
+  const [heroUploadProgress, setHeroUploadProgress] = useState(0);
   const [activeView, setActiveView] = useState<DashboardView>("overview");
   const [chartRange, setChartRange] = useState<ChartRange>("all");
   const [sidebarGroups, setSidebarGroups] = useState({ insights: true, management: true });
@@ -478,21 +487,28 @@ const AdminDashboard: React.FC = () => {
   // fetch data
   const fetchDashboardData = async () => {
     try {
-      const [carsRes, dealersRes, usersRes, subscriptionsRes] = await Promise.all([
+      const [carsRes, dealersRes, usersRes, subscriptionsRes, siteConfigRes] = await Promise.all([
         axiosInstance.get<Car[]>('/cars'),
         axiosInstance.get<Dealer[]>('/dealers'),
         axiosInstance.get('/users'),
         supabase.from('dealer_subscriptions').select('*').order('end_date', { ascending: false }),
+        axiosInstance.get('/site-config'),
       ]);
       const carsData = carsRes.data || [];
       const dealersData = dealersRes.data || [];
       const usersData = usersRes.data || [];
       const subscriptionsData = subscriptionsRes.data || [];
+      const siteConfigData = siteConfigRes.data || {};
 
       setCars(carsData);
       setDealers(dealersData);
       setDealerSubscriptions(subscriptionsData as any);
       setUsers(usersData);
+      setSiteConfig({
+        hero_image_url: siteConfigData.hero_image_url || "",
+        hero_video_url: siteConfigData.hero_video_url || "",
+        hero_video_url_2: siteConfigData.hero_video_url_2 || "",
+      });
 
       const totalListings = carsData.length;
       const pendingApproval = carsData.filter((c) => c.status === "pending").length;
@@ -522,6 +538,61 @@ const AdminDashboard: React.FC = () => {
         description: err?.message || "An error occurred",
         variant: "destructive",
       });
+    }
+  };
+
+  const handleSiteConfigSave = async () => {
+    try {
+      setSavingSiteConfig(true);
+      const payload = {
+        hero_image_url: siteConfig.hero_image_url.trim(),
+        hero_video_url: siteConfig.hero_video_url.trim(),
+        hero_video_url_2: siteConfig.hero_video_url_2.trim(),
+      };
+
+      const response = await axiosInstance.put('/site-config', payload);
+      setSiteConfig({
+        hero_image_url: response.data.hero_image_url || "",
+        hero_video_url: response.data.hero_video_url || "",
+        hero_video_url_2: response.data.hero_video_url_2 || "",
+      });
+      toast({ title: "Hero settings saved", description: "The home page hero has been updated." });
+    } catch (err: any) {
+      console.error(err);
+      toast({
+        title: "Save failed",
+        description: err?.response?.data?.error || err.message || "Unable to save hero settings.",
+        variant: "destructive",
+      });
+    } finally {
+      setSavingSiteConfig(false);
+    }
+  };
+
+  const handleHeroMediaUpload = async (file: File, resourceType: "image" | "video", videoSlot = 1) => {
+    try {
+      setUploadingHeroMedia(resourceType);
+      setHeroUploadProgress(0);
+      const url = await uploadToCloudinary(file, resourceType, setHeroUploadProgress);
+      setSiteConfig((prev) => ({
+        ...prev,
+        ...(resourceType === "image"
+          ? { hero_image_url: url }
+          : videoSlot === 2
+            ? { hero_video_url_2: url }
+            : { hero_video_url: url }),
+      }));
+      toast({ title: `${resourceType === "image" ? "Image" : "Video"} uploaded`, description: "Save hero settings to publish it." });
+    } catch (err: any) {
+      console.error(err);
+      toast({
+        title: "Upload failed",
+        description: err?.response?.data?.error || err.message || "Unable to upload hero media.",
+        variant: "destructive",
+      });
+    } finally {
+      setUploadingHeroMedia(null);
+      setHeroUploadProgress(0);
     }
   };
 
@@ -1022,6 +1093,106 @@ const AdminDashboard: React.FC = () => {
                       <p className="mt-2 text-2xl font-semibold">KES {Number(stats.totalRevenue).toLocaleString()}</p>
                     </Card>
                   </div>
+
+                  <Card className="p-6">
+                    <div className="mb-4">
+                      <h2 className="text-lg font-semibold">Home hero settings</h2>
+                      <p className={`text-sm ${mutedTextClass}`}>Upload up to two hero videos. They will play continuously on the homepage.</p>
+                    </div>
+
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div>
+                        <Label htmlFor="heroImageFile">Hero image</Label>
+                        <Input
+                          id="heroImageFile"
+                          type="file"
+                          accept="image/*"
+                          disabled={uploadingHeroMedia !== null}
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) void handleHeroMediaUpload(file, "image");
+                            e.target.value = "";
+                          }}
+                          className={`mt-2 ${inputClass}`}
+                        />
+                        <Input
+                          id="heroImageUrl"
+                          value={siteConfig.hero_image_url}
+                          onChange={(e) => setSiteConfig((prev) => ({ ...prev, hero_image_url: e.target.value }))}
+                          className={`mt-2 ${inputClass}`}
+                          placeholder="Or paste an image URL"
+                        />
+                      </div>
+
+                      <div>
+                        <Label htmlFor="heroVideoFile">Hero video 1</Label>
+                        <Input
+                          id="heroVideoFile"
+                          type="file"
+                          accept="video/*"
+                          disabled={uploadingHeroMedia !== null}
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) void handleHeroMediaUpload(file, "video", 1);
+                            e.target.value = "";
+                          }}
+                          className={`mt-2 ${inputClass}`}
+                        />
+                        <div className="mt-2 flex gap-2">
+                          <Input
+                            id="heroVideoUrl"
+                            value={siteConfig.hero_video_url}
+                            onChange={(e) => setSiteConfig((prev) => ({ ...prev, hero_video_url: e.target.value }))}
+                            className={inputClass}
+                            placeholder="Or paste a video URL"
+                          />
+                          {siteConfig.hero_video_url && (
+                            <Button type="button" variant="outline" size="icon" title="Delete video 1" onClick={() => setSiteConfig((prev) => ({ ...prev, hero_video_url: "" }))}>
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          )}
+                        </div>
+                        {uploadingHeroMedia && <p className={`mt-2 text-sm ${mutedTextClass}`}>Uploading {uploadingHeroMedia}... {heroUploadProgress}%</p>}
+                      </div>
+
+                      <div>
+                        <Label htmlFor="heroVideoFile2">Hero video 2 (optional)</Label>
+                        <Input
+                          id="heroVideoFile2"
+                          type="file"
+                          accept="video/*"
+                          disabled={uploadingHeroMedia !== null}
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) void handleHeroMediaUpload(file, "video", 2);
+                            e.target.value = "";
+                          }}
+                          className={`mt-2 ${inputClass}`}
+                        />
+                        <div className="mt-2 flex gap-2">
+                          <Input
+                            id="heroVideoUrl2"
+                            value={siteConfig.hero_video_url_2}
+                            onChange={(e) => setSiteConfig((prev) => ({ ...prev, hero_video_url_2: e.target.value }))}
+                            className={inputClass}
+                            placeholder="Or paste a second video URL"
+                          />
+                          {siteConfig.hero_video_url_2 && (
+                            <Button type="button" variant="outline" size="icon" title="Delete video 2" onClick={() => setSiteConfig((prev) => ({ ...prev, hero_video_url_2: "" }))}>
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+
+                    </div>
+
+                    <div className="mt-4 flex flex-wrap items-center gap-3">
+                      <Button onClick={handleSiteConfigSave} disabled={savingSiteConfig}>
+                        {savingSiteConfig ? "Saving..." : "Save hero settings"}
+                      </Button>
+                    </div>
+                  </Card>
 
                   <Card className="p-6">
                     <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

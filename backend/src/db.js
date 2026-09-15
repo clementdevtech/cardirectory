@@ -65,7 +65,6 @@ async function query(text, params, retries = 2) {
   for (let attempt = 0; attempt <= retries; attempt += 1) {
     try {
       client = await pool.connect();
-      attachClientErrorHandlers(client);
 
       const res = await client.query(text, params);
       const duration = Date.now() - start;

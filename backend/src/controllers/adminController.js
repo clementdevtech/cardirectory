@@ -4,6 +4,57 @@ const { query } = require("../db");
 const { sendEmail, sendMassEmail } = require("./emailController");
 const { uploadLogoToR2 } = require("../utils/cloudflareUpload");
 
+const getSiteSettings = async (req, res) => {
+  try {
+    const result = await query(
+      `SELECT * FROM site_settings ORDER BY id ASC LIMIT 1`
+    );
+
+    const config = result.rows[0] || {
+      id: 1,
+      hero_image_url: null,
+      hero_video_url: null,
+      hero_video_url_2: null,
+      hero_video_duration_seconds: 8,
+      updated_at: null,
+    };
+
+    res.json(config);
+  } catch (err) {
+    console.error("❌ getSiteSettings error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+const updateSiteSettings = async (req, res) => {
+  try {
+    const { hero_image_url, hero_video_url, hero_video_url_2 } = req.body || {};
+
+    const heroImageUrl = typeof hero_image_url === "string" ? hero_image_url.trim() || null : hero_image_url || null;
+    const heroVideoUrl = typeof hero_video_url === "string" ? hero_video_url.trim() || null : hero_video_url || null;
+    const heroVideoUrl2 = typeof hero_video_url_2 === "string" ? hero_video_url_2.trim() || null : hero_video_url_2 || null;
+
+    const result = await query(
+      `
+        INSERT INTO site_settings (id, hero_image_url, hero_video_url, hero_video_url_2, updated_at)
+        VALUES (1, $1, $2, $3, NOW())
+        ON CONFLICT (id) DO UPDATE
+        SET hero_image_url = EXCLUDED.hero_image_url,
+            hero_video_url = EXCLUDED.hero_video_url,
+            hero_video_url_2 = EXCLUDED.hero_video_url_2,
+            updated_at = NOW()
+        RETURNING *
+      `,
+      [heroImageUrl, heroVideoUrl, heroVideoUrl2]
+    );
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error("❌ updateSiteSettings error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+};
+
 const getSalesDashboard = async (req, res) => {
   try {
     const salespersonId = req.params.userId || req.user?.id;
@@ -811,4 +862,6 @@ module.exports = {
   getAdminUsers,
   updateUserRoleAndCommission,
   recordSalesCommission,
+  getSiteSettings,
+  updateSiteSettings,
 };
